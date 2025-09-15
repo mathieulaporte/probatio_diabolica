@@ -1,0 +1,164 @@
+require_relative './llm_spec/matchers'
+require_relative './llm_spec/formatters'
+
+require 'ruby_llm'
+RubyLLM.configure do |config|
+  config.openrouter_api_key = ENV['OPENROUTER_API_KEY']
+end
+
+module LlmSpec
+  class Runtime
+    class TestResult
+      attr_reader :comment, :pass
+
+      def initialize(comment:, pass:)
+        @comment = comment
+        @pass = pass
+      end
+    end
+
+    def self.run(tests)
+      new.run(tests)
+    end
+
+    DEFAULT_MATCHERS = [
+      LlmSpec::Matchers::AllMatcher,
+      LlmSpec::Matchers::BeMatcher,
+      LlmSpec::Matchers::EqMatcher,
+      LlmSpec::Matchers::HaveMatcher,
+      LlmSpec::Matchers::IncludesMatcher,
+      LlmSpec::Matchers::LlmMatcher
+    ].freeze
+
+    def initialize(output_dir:, formatter: nil, matchers: [], verbose: true)
+      @actual = nil
+      @passed_count = 0
+      @failed_count = 0
+      @formatter = formatter
+      @output_dir = output_dir
+      @verbose = verbose
+      (DEFAULT_MATCHERS + matchers).each do |matcher|
+        define_singleton_method(matcher::DSL_HELPER_NAME) do |*args|
+          if matcher == LlmSpec::Matchers::LlmMatcher
+            matcher.new(*args, client: RubyLLM.chat(model: current_model))
+          else
+            matcher.new(*args)
+          end
+        end
+      end
+      @models_stack = []
+    end
+
+    def describe(description, model: nil, &block)
+      context(description, model: model, &block)
+      @formatter.result(@passed_count, @failed_count)
+    end
+
+    def context(description, model: nil, &block)
+      @formatter.context(description)
+      @formatter.increment_level
+      @models_stack.push(model) if model
+
+      instance_eval(&block)
+
+      @models_stack.pop if model
+      @formatter.decrement_level
+    end
+
+    def it(description = nil, model = nil, &block)
+      begin
+        description ||= @tests.split("\n")[block.source_location.last - 1].strip
+        @models_stack.push(model) if model
+        @formatter.it(description, &block) if @verbose
+        @formatter.increment_level
+        result = block.call
+        if !result.pass
+          @failed_count += 1
+          @formatter.justification(result.comment) if result.comment
+          @formatter.failure_result("Test failed at #{Time.now.strftime('%Y-%m-%d %H:%M:%S')}")
+        elsif @verbose
+          @passed_count += 1
+          @formatter.justification(result.comment) if result.comment
+          @formatter.success_result("Test passed successfully at #{Time.now.strftime('%Y-%m-%d %H:%M:%S')}")
+        end
+        return result
+      rescue => e
+        $stderr.puts "An error occurred while executing test: #{e.message}"
+        $stderr.puts e.backtrace.join("\n")
+        @formatter.failure_result(
+          "Test failed at #{Time.now.strftime('%Y-%m-%d %H:%M:%S')} with error message: #{e.message}"
+        )
+        @failed_count += 1
+      ensure
+        @formatter.decrement_level
+        @models_stack.pop if model
+      end
+    end
+
+    def let(name, &block)
+      block_result = block.call
+
+      @formatter.let(block_result) if @verbose
+
+      instance_variable_set("@#{name}", block_result)
+      define_singleton_method(name) { block_result }
+    end
+
+    def to(matcher)
+      @formatter.to
+      @formatter.matcher(matcher)
+      matcher.matches?(@actual)
+    end
+
+    def not_to(matcher)
+      @formatter.not_to
+      @formatter.matcher(matcher)
+      result = matcher.matches?(@actual)
+      TestResult.new(comment: result.comment, pass: !result.pass)
+    end
+
+    def subject(&block)
+      if block_given?
+        @subject = block.call
+        @formatter.subject(@subject) if @verbose
+      else
+        @subject ||= nil
+      end
+      @subject
+    end
+
+    def expect(*args, &block)
+      if args.length >= 1
+        @actual = args.first
+        @formatter.expect(@actual)
+      elsif block_given?
+        @actual = block.call(subject)
+        @formatter.expect(@actual)
+      else
+        @actual = subject
+        @formatter.expect('Le sujet')
+      end
+      self
+    end
+
+    def pending(description = nil, &block)
+      @formatter.pending(description || 'Pending test') if @verbose
+    end
+
+    def current_model
+      @models_stack.last
+    end
+
+    def run(tests)
+      @tests = tests
+      instance_eval(tests)
+    rescue StandardError => e
+      $stderr.puts "An error occurred while running tests: #{e.message}"
+      $stderr.puts e.backtrace.join("\n")
+      @formatter.failure_result("An error occurred while running tests: #{e.message}")
+      @failed_count += 1
+    ensure
+      @formatter.flush
+    end
+  end
+end
