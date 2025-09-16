@@ -2,14 +2,11 @@
 
 require_relative '../lib/llm_spec'
 require 'optparse'
-require 'ferrum'
-# require 'pdf-reader'
 
 options = {}
 OptionParser
   .new do |opts|
     opts.banner = 'Usage: run.rb [options]'
-
     opts.on('-f', '--file FILE', 'Specify the test file to run') { |file| options[:file] = file }
     opts.on('-o', '--out DIR', 'Specify the output directory') { |dir| options[:out] = dir }
     opts.on('-t', '--type TYPE', 'Specify the formatter type (simple or quarkdown)') do |type|
@@ -18,23 +15,24 @@ OptionParser
   end
   .parse!
 
-tests = File.read(options[:file]) if options[:file]
+raise 'No tests found. Please specify a test file using -f option.' if options[:file].nil? || options[:file].empty?
 
-if tests.nil? || tests.empty?
-  puts 'No tests found. Please specify a test file using -f option.'
-  exit 1
-end
-io =
-  if options[:out] == nil
-    STDOUT
-  else
-    File.open(File.join(options[:out], 'report.qd'), 'w')
+tests =
+  if File.directory?(options[:file])
+    Dir[File.join(options[:file], '**', '*_spec.rb')].map { |file| File.read(file) }
+  elsif File.file?(options[:file])
+    [File.read(options[:file])]
   end
-formatter_class = options[:formatter] == 'quarkdown' ? QuarkdownFormatter : LlmSpec::Formatters::SimpleFormatter
+
+io = (options[:out].nil? ? STDOUT : File.open(File.join(options[:out], 'report.qd'), 'w'))
+
+formatter_class = LlmSpec::Formatters::SimpleFormatter
+
 serializers = {
   # Ferrum::Network::Exchange => (->(exchange) { exchange.url }),
   # PDF::Reader => (->(pdf) { pdf.pages.map(&:text).join("\n") })
 }
+
 formatter = formatter_class.new(io:, serializers:)
 runtime = LlmSpec::Runtime.new(formatter:, output_dir: options[:out])
 runtime.run(tests)

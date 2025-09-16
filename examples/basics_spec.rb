@@ -25,13 +25,14 @@ describe 'Basic tests examples' do
     end
   end
   context 'with strings' do
-    let(:greeting) { 'Hello, LLM Spec!' }
+    subject { 'Hello, LLM Spec!' }
+
     it 'should have the correct greeting' do
-      expect(greeting).to(eq('Hello, LLM Spec!'))
+      expect.to(eq('Hello, LLM Spec!'))
     end
 
     it 'should include a substring' do
-      expect(greeting).to(includes('LLM'))
+      expect.to(includes('LLM'))
     end
   end
 
@@ -51,11 +52,11 @@ describe 'Basic tests examples' do
       expect(wrong_affirmation).not_to(satisfy('This statement is true.'))
     end
 
-    it 'should validate things' do
+    it 'should be a valid sql statement' do
       expect('Select * from users where id = 1').to(satisfy('This statement is a valid SQL query.'))
     end
 
-    it 'should not validate things' do
+    it 'should not be a valid sql statement' do
       expect('Select * from users where id : 1').to(satisfy('This statement is a valid SQL query.'))
     end
   end

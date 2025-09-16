@@ -177,7 +177,9 @@ module LlmSpec
 
     def run(tests)
       @tests = tests
-      instance_eval(tests)
+      @tests.each do |test|
+        instance_eval(test)
+      end
     rescue StandardError => e
       $stderr.puts "An error occurred while running tests: #{e.message}"
       $stderr.puts e.backtrace.join("\n")

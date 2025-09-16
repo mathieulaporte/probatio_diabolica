@@ -22,7 +22,7 @@ module LlmSpec
       end
 
       def it(description = nil, &block)
-        title(description)
+        title(description.capitalize)
       end
 
       def justification(justification)
@@ -57,15 +57,15 @@ module LlmSpec
       def matcher(matcher, sources: nil)
         case matcher
         when Matchers::EqMatcher
-          output("be equal to: #{matcher.expected}", :white, indent: 2)
+          output("Be equal to: #{matcher.expected}", :white, indent: 2)
         when Matchers::BeMatcher
-          output("be the same object as: #{matcher.expected}", :white, indent: 2)
+          output("Be the same object as: #{matcher.expected}", :white, indent: 2)
         when Matchers::IncludesMatcher
-          output("include: #{matcher.expected}", :white, indent: 2)
+          output("Include: #{matcher.expected}", :white, indent: 2)
         when Matchers::HaveMatcher
-          output("have: #{matcher.expected}", :white, indent: 2)
+          output("Have: #{matcher.expected}", :white, indent: 2)
         when Matchers::LlmMatcher
-          output("satisfy condition: #{matcher.expected}", :white, indent: 2)
+          output("Satisfy condition: #{matcher.expected}", :white, indent: 2)
         when Matchers::AllMatcher
           if sources
             code_line = matcher.expected.source_location.last.to_i
