@@ -2,9 +2,8 @@ require_relative './llm_spec/matchers'
 require_relative './llm_spec/formatters'
 
 require 'ruby_llm'
-RubyLLM.configure do |config|
-  config.openrouter_api_key = ENV['OPENROUTER_API_KEY']
-end
+require 'prism'
+RubyLLM.configure { |config| config.openrouter_api_key = ENV['OPENROUTER_API_KEY'] }
 
 module LlmSpec
   class Runtime
@@ -125,6 +124,33 @@ module LlmSpec
         @subject ||= nil
       end
       @subject
+    end
+
+    def source_code(class_or_method)
+      def extract_from_node(node, method_name, code)
+        return nil unless node.respond_to?(:child_nodes)
+
+        node.child_nodes.each do |child|
+          if child.is_a?(Prism::DefNode) && child.name.to_s == method_name.to_s
+            return code[child.location.start_offset...child.location.end_offset]
+          end
+
+          found = extract_from_node(child, method_name, code)
+          return found if found
+        end
+
+        nil
+      end
+      if class_or_method.is_a?(Class)
+        File.read(Object.const_source_location(class_or_method.to_s).first)
+      else
+        file, line = class_or_method.source_location
+        return nil unless file && line
+
+        code = File.read(file)
+        tree = Prism.parse(code)
+        extract_from_node(tree.value, class_or_method.name, code)
+      end
     end
 
     def expect(*args, &block)

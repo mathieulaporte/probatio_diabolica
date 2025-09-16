@@ -7,7 +7,6 @@ module LlmSpec
         @level = 0
       end
 
-      # Méthodes qui doivent être implémentées par les sous-classes
       def title(message)
         raise NotImplementedError, "#{self.class} must implement #title"
       end
