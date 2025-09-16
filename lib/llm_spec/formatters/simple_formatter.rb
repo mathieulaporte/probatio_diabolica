@@ -84,10 +84,6 @@ module LlmSpec
         output("#{passed_count} passed, #{failed_count} failed", color)
       end
 
-      def flush
-        @io.flush
-      end
-
       private
 
       def output(message, color = :default, figure: nil, indent: 0)

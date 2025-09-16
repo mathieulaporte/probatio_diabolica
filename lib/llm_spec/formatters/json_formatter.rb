@@ -47,6 +47,10 @@ module LlmSpec
         @json[:output] = { message: message }
       end
 
+      def subject(subject)
+        @json[:subject] = subject
+      end
+
       def flush
         @io.puts JSON.pretty_generate(@json)
         @io.flush

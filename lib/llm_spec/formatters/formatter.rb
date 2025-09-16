@@ -12,6 +12,10 @@ module LlmSpec
         raise NotImplementedError, "#{self.class} must implement #title"
       end
 
+      def context(message)
+        raise NotImplementedError, "#{self.class} must implement #context"
+      end
+
       def success_result(message)
         raise NotImplementedError, "#{self.class} must implement #success_result"
       end
@@ -22,6 +26,14 @@ module LlmSpec
 
       def it(description = nil, &block)
         raise NotImplementedError, "#{self.class} must implement #it"
+      end
+
+            def justification(justification)
+        raise NotImplementedError, "#{self.class} must implement #justification"
+      end
+
+      def subject(subject)
+        raise NotImplementedError, "#{self.class} must implement #subject"
       end
 
       def pending(description = nil)
@@ -53,6 +65,10 @@ module LlmSpec
 
       def decrement_level
         @level -= 1
+      end
+
+      def flush
+        @io.flush
       end
     end
   end
