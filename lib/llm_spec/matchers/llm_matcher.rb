@@ -52,7 +52,7 @@ module LlmSpec
       def text(expected, actual)
         @llm_client
           .with_instructions(
-            'You are a helpful assistant that verifies text conditions. You will receive a text and a condition to verify. First you have to justify your answer in the <justification> field, then the <satisfy> field should be true or false'
+            'You are a helpful assistant that verifies conditions on text. You will receive a text and a condition to check. First, provide your reasoning in the <justification> field. Then, indicate whether the condition is satisfied in the <satisfy> field, using either true or false.'
           )
           .with_params(response_format: { type: 'json_object' })
           .with_schema(TestResult)
@@ -68,7 +68,7 @@ module LlmSpec
 
           @llm_client
             .with_instructions(
-              'You are a helpful assistant that verifies image conditions. You will receive an image and a condition to verify. First you have to justify your answer in the <justification> field, then the <satisfy> field should be true or false'
+              'You are a helpful assistant that verifies conditions on images. You will receive an image and a condition to check. First, provide your reasoning in the <justification> field. Then, indicate whether the condition is satisfied in the <satisfy> field, using either true or false.'
             )
             .with_params(response_format: { type: 'json_object' })
             .with_schema(TestResult)

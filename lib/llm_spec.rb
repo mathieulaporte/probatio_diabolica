@@ -3,7 +3,6 @@ require_relative './llm_spec/formatters'
 
 require 'ruby_llm'
 require 'prism'
-RubyLLM.configure { |config| config.openrouter_api_key = ENV['OPENROUTER_API_KEY'] }
 
 module LlmSpec
   class Runtime
@@ -29,7 +28,7 @@ module LlmSpec
       LlmSpec::Matchers::LlmMatcher
     ].freeze
 
-    def initialize(output_dir:, formatter: nil, matchers: [], verbose: true)
+    def initialize(output_dir:, formatter: nil, matchers: [], verbose: true, config_file: nil)
       @actual = nil
       @passed_count = 0
       @failed_count = 0
@@ -46,6 +45,11 @@ module LlmSpec
         end
       end
       @models_stack = []
+      if config_file
+        require config_file
+      elsif File.exist?('ai_spec_helper.rb')
+        require './ai_spec_helper'
+      end
     end
 
     def describe(description, model: nil, &block)
@@ -177,9 +181,7 @@ module LlmSpec
 
     def run(tests)
       @tests = tests
-      @tests.each do |test|
-        instance_eval(test)
-      end
+      @tests.each { |test| instance_eval(test) }
     rescue StandardError => e
       $stderr.puts "An error occurred while running tests: #{e.message}"
       $stderr.puts e.backtrace.join("\n")

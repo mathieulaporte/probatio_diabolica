@@ -9,7 +9,8 @@ OptionParser
     opts.banner = 'Usage: run.rb [options]'
     opts.on('-f', '--file FILE', 'Specify the test file to run') { |file| options[:file] = file }
     opts.on('-o', '--out DIR', 'Specify the output directory') { |dir| options[:out] = dir }
-    opts.on('-t', '--type TYPE', 'Specify the formatter type (simple or quarkdown)') do |type|
+    opts.on('-c', '--config FILE', 'Specify the config file') { |file| options[:config] = file }
+    opts.on('-t', '--type TYPE', 'Specify the formatter type (simple)') do |type|
       options[:formatter] = type
     end
   end
@@ -34,5 +35,5 @@ serializers = {
 }
 
 formatter = formatter_class.new(io:, serializers:)
-runtime = LlmSpec::Runtime.new(formatter:, output_dir: options[:out])
+runtime = LlmSpec::Runtime.new(formatter:, output_dir: options[:out], config_file: options[:config])
 runtime.run(tests)
