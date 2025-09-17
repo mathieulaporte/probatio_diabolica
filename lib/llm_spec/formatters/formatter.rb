@@ -27,7 +27,11 @@ module LlmSpec
         raise NotImplementedError, "#{self.class} must implement #it"
       end
 
-            def justification(justification)
+      def end_it
+        raise NotImplementedError, "#{self.class} must implement #end_it"
+      end
+
+      def justification(justification)
         raise NotImplementedError, "#{self.class} must implement #justification"
       end
 

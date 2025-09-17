@@ -27,7 +27,7 @@ tests =
 
 io = (options[:out].nil? ? STDOUT : File.open(File.join(options[:out], 'report.qd'), 'w'))
 
-formatter_class = LlmSpec::Formatters::SimpleFormatter
+formatter_class = options[:formatter] == 'html' ? LlmSpec::Formatters::HtmlFormatter : LlmSpec::Formatters::SimpleFormatter
 
 serializers = {
   # Ferrum::Network::Exchange => (->(exchange) { exchange.url }),

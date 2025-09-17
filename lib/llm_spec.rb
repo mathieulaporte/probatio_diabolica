@@ -93,6 +93,7 @@ module LlmSpec
         )
         @failed_count += 1
       ensure
+        @formatter.end_it(description, &block)
         @formatter.decrement_level
         @models_stack.pop if model
       end

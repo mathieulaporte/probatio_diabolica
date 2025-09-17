@@ -1,87 +1,118 @@
 module LlmSpec
   module Formatters
-    class SimpleFormatter < Formatter
-      COLOR_MAPPING = { green: "\e[32m", red: "\e[31m", yellow: "\e[33m", blue: "\e[34m", default: "\e[0m", white: "\e[37m" }.freeze
-
-      INDENT = '│  '.freeze
+    class HtmlFormatter < Formatter
 
       def initialize(io: $stdout, serializers: {})
         super(io: io, serializers: serializers)
+        @io << '<html><head><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"></head><body><main class="container">'
       end
 
       def context(message)
-        output(message, :yellow)
+        @io << "<h#{@level + 1}>#{message}</h#{@level + 1}>"
       end
 
       def success_result(message)
-        output("✓ #{message}", :green)
+        @io << "<div class='success'>✓ #{message}</div>"
       end
 
       def failure_result(message)
-        output("✗ #{message}", :red)
+        @io << "<div class='failure'>✗ #{message}</div>"
       end
 
       def it(description = nil, &block)
-        title(description.capitalize)
+        @io << "<h#{@level + 1}>#{description}</h#{@level + 1}>"
+        @io << '<div class="grid">'
+      end
+
+      def end_it(description = nil, &block)
+        @io << '</div>'
       end
 
       def justification(justification)
-        output("Justification: #{justification}", :white, indent: 1)
+        @io << "<p><strong>Justification:</strong> #{justification}</p>"
       end
 
       def let(value)
       end
 
       def subject(subject)
-        title('Subject')
-        output(subject, :white, indent: 1)
+        # title('Subject')
+        # output(subject, :white, indent: 1)
       end
 
       def pending(description = nil)
-        title(description || 'Pending test')
-        output('⚠ This test is pending and has not been executed.', :yellow)
+        @io << "<h#{@level + 1}>#{description || 'Pending test'}</h#{@level + 1}>"
+        @io << "<p>⚠ This test is pending and has not been executed.</p>"
       end
 
       def expect(expectation)
-        output("Expect: #{expectation}", :white, indent: 1)
+        @io << "<p>Expect: #{expectation}</p>"
       end
 
       def to
-        output('To:', :white, indent: 1)
+        @io << "<p>To:</p>"
       end
 
       def not_to
-        output('Not to:', :white, indent: 1)
+        @io << "<p>Not to:</p>"
       end
 
       def matcher(matcher, sources: nil)
+        # case matcher
+        # when Matchers::EqMatcher
+        #   output("Be equal to: #{matcher.expected}", :white, indent: 2)
+        # when Matchers::BeMatcher
+        #   output("Be the same object as: #{matcher.expected}", :white, indent: 2)
+        # when Matchers::IncludesMatcher
+        #   output("Include: #{matcher.expected}", :white, indent: 2)
+        # when Matchers::HaveMatcher
+        #   output("Have: #{matcher.expected}", :white, indent: 2)
+        # when Matchers::LlmMatcher
+        #   output("Satisfy condition: #{matcher.expected}", :white, indent: 2)
+        # when Matchers::AllMatcher
+        #   if sources
+        #     code_line = matcher.expected.source_location.last.to_i
+        #     code = sources.lines[code_line - 1]
+        #     output("all match condition: #{code.strip}", :white, indent: 2)
+        #   else
+        #     output('all match the given condition', :white, indent: 2)
+        #   end
+        # else
+        #   output("match: #{matcher.class}", :white, indent: 2)
+        # end
+
         case matcher
         when Matchers::EqMatcher
-          output("Be equal to: #{matcher.expected}", :white, indent: 2)
+          @io << "<p>Be equal to: #{matcher.expected}</p>"
         when Matchers::BeMatcher
-          output("Be the same object as: #{matcher.expected}", :white, indent: 2)
+          @io << "<p>Be the same object as: #{matcher.expected}</p>"
         when Matchers::IncludesMatcher
-          output("Include: #{matcher.expected}", :white, indent: 2)
+          @io << "<p>Include: #{matcher.expected}</p>"
         when Matchers::HaveMatcher
-          output("Have: #{matcher.expected}", :white, indent: 2)
+          @io << "<p>Have: #{matcher.expected}</p>"
         when Matchers::LlmMatcher
-          output("Satisfy condition: #{matcher.expected}", :white, indent: 2)
+          @io << "<p>Satisfy condition: #{matcher.expected}</p>"
         when Matchers::AllMatcher
           if sources
             code_line = matcher.expected.source_location.last.to_i
             code = sources.lines[code_line - 1]
-            output("all match condition: #{code.strip}", :white, indent: 2)
+            @io << "<p>All match condition: #{code.strip}</p>"
           else
-            output('all match the given condition', :white, indent: 2)
+            @io << "<p>All match the given condition</p>"
           end
         else
-          output("match: #{matcher.class}", :white, indent: 2)
+          @io << "<p>Match: #{matcher.class}</p>"
         end
       end
 
       def result(passed_count, failed_count)
-        color = failed_count > 0 ? :red : :green
-        output("#{passed_count} passed, #{failed_count} failed", color)
+        # color = failed_count > 0 ? :red : :green
+        # output("#{passed_count} passed, #{failed_count} failed", color)
+      end
+
+      def flush
+        @io << '</main></body></html>'
+        @io.flush
       end
 
       private
