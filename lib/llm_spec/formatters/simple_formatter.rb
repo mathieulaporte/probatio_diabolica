@@ -54,6 +54,9 @@ module LlmSpec
         output('Not to:', :white, indent: 1)
       end
 
+      def end_it(description = nil, &block)
+      end
+
       def matcher(matcher, sources: nil)
         case matcher
         when Matchers::EqMatcher

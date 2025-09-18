@@ -27,7 +27,7 @@ module LlmSpec
         raise NotImplementedError, "#{self.class} must implement #it"
       end
 
-      def end_it
+      def end_it(description = nil, &block)
         raise NotImplementedError, "#{self.class} must implement #end_it"
       end
 
