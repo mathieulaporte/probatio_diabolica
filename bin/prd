@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 
-require_relative '../lib/llm_spec'
+require_relative '../lib/pr_d'
 require 'optparse'
 
 options = {}
@@ -27,7 +27,7 @@ tests =
 
 io = (options[:out].nil? ? STDOUT : File.open(File.join(options[:out], 'report.qd'), 'w'))
 
-formatter_class = options[:formatter] == 'html' ? LlmSpec::Formatters::HtmlFormatter : LlmSpec::Formatters::SimpleFormatter
+formatter_class = options[:formatter] == 'html' ? PrD::Formatters::HtmlFormatter : PrD::Formatters::SimpleFormatter
 
 serializers = {
   # Ferrum::Network::Exchange => (->(exchange) { exchange.url }),
@@ -35,5 +35,5 @@ serializers = {
 }
 
 formatter = formatter_class.new(io:, serializers:)
-runtime = LlmSpec::Runtime.new(formatter:, output_dir: options[:out], config_file: options[:config])
+runtime = PrD::Runtime.new(formatter:, output_dir: options[:out], config_file: options[:config])
 runtime.run(tests)

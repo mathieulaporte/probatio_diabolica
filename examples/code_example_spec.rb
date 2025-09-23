@@ -1,7 +1,7 @@
 describe 'Code tests examples' do
   context 'The code of the AllMatcher', model: "qwen/qwen-2.5-coder-32b-instruct:free" do
     let(:all_matcher_code) do
-      source_code(LlmSpec::Matchers::AllMatcher)
+      source_code(PrD::Matchers::AllMatcher)
     end
     it 'should have only 1 responsibility' do
       expect(all_matcher_code).to satisfy('This code adheres to the single responsibility principle.')
@@ -12,7 +12,7 @@ describe 'Code tests examples' do
     end
 
     context "#matches?" do
-      let(:matches_method) { source_code(LlmSpec::Matchers::AllMatcher.instance_method(:matches?)) }
+      let(:matches_method) { source_code(PrD::Matchers::AllMatcher.instance_method(:matches?)) }
 
       it "should always return a TestResult" do
         expect(matches_method).to satisfy('This method allways return a TestResult')

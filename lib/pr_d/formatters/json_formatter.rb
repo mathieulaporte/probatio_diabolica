@@ -1,4 +1,4 @@
-module LlmSpec
+module PrD
   module Formatters
     class JsonFormatter < Formatter
       def initialize(io: $stdout, serializers: {})

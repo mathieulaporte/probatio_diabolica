@@ -1,4 +1,4 @@
-module LlmSpec
+module PrD
   module Matchers
     class Matcher
       attr_reader :expected

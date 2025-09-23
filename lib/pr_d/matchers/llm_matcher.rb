@@ -3,7 +3,7 @@ require 'tempfile'
 require 'ruby_llm'
 require 'ruby_llm/schema'
 
-module LlmSpec
+module PrD
   module Matchers
     class LlmMatcher < Matcher
       DSL_HELPER_NAME = :satisfy
@@ -22,7 +22,7 @@ module LlmSpec
         if actual.is_a?(String)
           llm_result = text(@expected, actual)
           return(
-            LlmSpec::Runtime::TestResult.new(
+            PrD::Runtime::TestResult.new(
               comment: llm_result.content['justification'],
               pass: llm_result.content['satisfy']
             )
@@ -31,7 +31,7 @@ module LlmSpec
           if actual.path.end_with?('.png', '.jpg', '.jpeg')
             llm_result = image(@expected, actual)
             return(
-              LlmSpec::Runtime::TestResult.new(
+              PrD::Runtime::TestResult.new(
                 comment: llm_result.content['justification'],
                 pass: llm_result.content['satisfy']
               )
@@ -52,7 +52,7 @@ module LlmSpec
       def text(expected, actual)
         @llm_client
           .with_instructions(
-            'You are a helpful assistant that verifies conditions on text. You will receive a text and a condition to check. First, provide your reasoning in the <justification> field. Then, indicate whether the condition is satisfied in the <satisfy> field, using either true or false.'
+            'You are an assistant that verifies conditions on text. Do not assume how things can be, use only what is provided. If multiple conditions are given they should all be true to pass satisfy to true. You will receive a text and a condition to check. First, provide your reasoning in the <justification> field. Then, indicate whether the condition is satisfied in the <satisfy> field, using either true or false.'
           )
           .with_params(response_format: { type: 'json_object' })
           .with_schema(TestResult)

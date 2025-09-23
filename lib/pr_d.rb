@@ -1,10 +1,10 @@
-require_relative './llm_spec/matchers'
-require_relative './llm_spec/formatters'
+require_relative './pr_d/matchers'
+require_relative './pr_d/formatters'
 
 require 'ruby_llm'
 require 'prism'
 
-module LlmSpec
+module PrD
   class Runtime
     class TestResult
       attr_reader :comment, :pass
@@ -20,12 +20,12 @@ module LlmSpec
     end
 
     DEFAULT_MATCHERS = [
-      LlmSpec::Matchers::AllMatcher,
-      LlmSpec::Matchers::BeMatcher,
-      LlmSpec::Matchers::EqMatcher,
-      LlmSpec::Matchers::HaveMatcher,
-      LlmSpec::Matchers::IncludesMatcher,
-      LlmSpec::Matchers::LlmMatcher
+      PrD::Matchers::AllMatcher,
+      PrD::Matchers::BeMatcher,
+      PrD::Matchers::EqMatcher,
+      PrD::Matchers::HaveMatcher,
+      PrD::Matchers::IncludesMatcher,
+      PrD::Matchers::LlmMatcher
     ].freeze
 
     def initialize(output_dir:, formatter: nil, matchers: [], verbose: true, config_file: nil)
@@ -37,7 +37,7 @@ module LlmSpec
       @verbose = verbose
       (DEFAULT_MATCHERS + matchers).each do |matcher|
         define_singleton_method(matcher::DSL_HELPER_NAME) do |*args|
-          if matcher == LlmSpec::Matchers::LlmMatcher
+          if matcher == PrD::Matchers::LlmMatcher
             matcher.new(*args, client: RubyLLM.chat(model: current_model))
           else
             matcher.new(*args)
@@ -47,8 +47,8 @@ module LlmSpec
       @models_stack = []
       if config_file
         require config_file
-      elsif File.exist?('ai_spec_helper.rb')
-        require './ai_spec_helper'
+      elsif File.exist?('prd_helper.rb')
+        require './prd_helper'
       end
     end
 

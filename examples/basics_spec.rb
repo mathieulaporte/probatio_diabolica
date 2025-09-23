@@ -3,7 +3,6 @@ describe 'Basic tests examples' do
     expect(true).to(be(true))
   end
   context 'with numbers' do
-    puts current_model
     let(:number) { 5 }
     it 'should compare numbers correctly' do
       expect(number).to(eq(5))

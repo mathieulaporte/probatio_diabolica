@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 Gem::Specification.new do |spec|
-  spec.name          = "llm_spec"
+  spec.name          = "probatio_diabolica"
   spec.version       = "0.1.0"
   spec.authors       = ["Votre Nom"]
   spec.email         = ["votre.email@example.com"]
@@ -13,8 +13,7 @@ Gem::Specification.new do |spec|
 
   spec.files         = Dir["lib/**/*.rb", "README.md"]
   spec.bindir        = "bin"
-  spec.executables << "llm_spec"
-  # spec.executables   = spec.files.grep(%r{^bin/}) { |f| File.basename(f) }
+  spec.executables << "prd"
   spec.require_paths = ["lib"]
 
   spec.add_dependency "ruby_llm"
