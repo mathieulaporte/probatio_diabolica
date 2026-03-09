@@ -1,7 +1,7 @@
 module PrD
   module Formatters
     class SimpleFormatter < Formatter
-      COLOR_MAPPING = { green: "\e[32m", red: "\e[32m", yellow: "\e[33m", blue: "\e[34m", default: "\e[0m", white: "\e[37m" }.freeze
+      COLOR_MAPPING = { green: "\e[32m", red: "\e[31m", yellow: "\e[33m", blue: "\e[34m", default: "\e[0m", white: "\e[37m" }.freeze
 
       INDENT = '│  '.freeze
 

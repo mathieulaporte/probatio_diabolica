@@ -32,13 +32,20 @@ module PrD
       @actual = nil
       @passed_count = 0
       @failed_count = 0
-      @formatter = formatter
+      @formatter = formatter || PrD::Formatters::SimpleFormatter.new
       @output_dir = output_dir
       @verbose = verbose
       (DEFAULT_MATCHERS + matchers).each do |matcher|
         define_singleton_method(matcher::DSL_HELPER_NAME) do |*args|
           if matcher == PrD::Matchers::LlmMatcher
-            matcher.new(*args, client: RubyLLM.chat(model: current_model))
+            model = current_model
+            raise ArgumentError, 'LLM matcher requires a model. Set model: on context/it before using satisfy().' if model.nil?
+
+            begin
+              matcher.new(*args, client: RubyLLM.chat(model: model))
+            rescue StandardError => e
+              raise ArgumentError, "Unable to initialize LLM client for model '#{model}': #{e.message}"
+            end
           else
             matcher.new(*args)
           end
@@ -78,19 +85,19 @@ module PrD
         if !result.pass
           @failed_count += 1
           @formatter.justification(result.comment) if result.comment
-          @formatter.failure_result("Test failed at #{Time.now.strftime('%Y-%m-%d %H:%M:%S')}")
-        elsif @verbose
+          @formatter.failure_result("Test failed at #{formatted_time}")
+        else
           @passed_count += 1
-          @formatter.justification(result.comment) if result.comment
-          @formatter.success_result("Test passed successfully at #{Time.now.strftime('%Y-%m-%d %H:%M:%S')}")
+          if @verbose
+            @formatter.justification(result.comment) if result.comment
+            @formatter.success_result("Test passed successfully at #{formatted_time}")
+          end
         end
         return result
       rescue => e
         $stderr.puts "An error occurred while executing test: #{e.message}"
         $stderr.puts e.backtrace.join("\n")
-        @formatter.failure_result(
-          "Test failed at #{Time.now.strftime('%Y-%m-%d %H:%M:%S')} with error message: #{e.message}"
-        )
+        @formatter.failure_result("Test failed at #{formatted_time} with error message: #{e.message}")
         @failed_count += 1
       ensure
         @formatter.end_it(description, &block)
@@ -172,6 +179,8 @@ module PrD
     end
 
     def run(tests)
+      raise ArgumentError, 'No tests found. Provide at least one spec content to run.' if tests.nil? || tests.empty?
+
       @tests = tests
       @tests.each { |test| instance_eval(test) }
     rescue StandardError => e
@@ -184,6 +193,10 @@ module PrD
     end
 
     private
+
+    def formatted_time
+      Time.now.utc.strftime('%Y-%m-%d %H:%M:%S UTC')
+    end
 
     def extract_method_from_node(node, method_name, code)
       return nil unless node.respond_to?(:child_nodes)

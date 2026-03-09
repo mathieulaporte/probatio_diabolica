@@ -9,7 +9,7 @@ module PrD
           content = actual.read
           actual.rewind
           PrD::Runtime::TestResult.new(comment: nil, pass: content.include?(@expected))
-        elsif actual.is_a?(PDF::Reader)
+        elsif defined?(PDF::Reader) && actual.is_a?(PDF::Reader)
           PrD::Runtime::TestResult.new(comment: nil, pass: actual.pages.any? { |page| page.text.include?(@expected) })
         else
           raise ArgumentError, "Unsupported type for includes matcher: #{actual.class}"

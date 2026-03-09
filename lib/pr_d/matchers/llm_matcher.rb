@@ -2,45 +2,37 @@ require 'base64'
 require 'tempfile'
 require 'ruby_llm'
 require 'ruby_llm/schema'
+require 'timeout'
 
 module PrD
   module Matchers
     class LlmMatcher < Matcher
       DSL_HELPER_NAME = :satisfy
+      DEFAULT_TIMEOUT_SECONDS = 30
+      DEFAULT_RETRIES = 1
 
       class TestResult < RubyLLM::Schema
         string :justification
         boolean :satisfy
       end
 
-      def initialize(expected, client:)
+      def initialize(expected, client:, timeout_seconds: DEFAULT_TIMEOUT_SECONDS, retries: DEFAULT_RETRIES)
         @llm_client = client
+        @timeout_seconds = timeout_seconds
+        @retries = retries
         super(expected)
       end
 
       def matches?(actual)
         if actual.is_a?(String)
-          llm_result = text(@expected, actual)
-          return(
-            PrD::Runtime::TestResult.new(
-              comment: llm_result.content['justification'],
-              pass: llm_result.content['satisfy']
-            )
-          )
+          return build_runtime_result(text(@expected, actual))
         elsif actual.is_a?(File)
           if actual.path.end_with?('.png', '.jpg', '.jpeg')
-            llm_result = image(@expected, actual)
-            return(
-              PrD::Runtime::TestResult.new(
-                comment: llm_result.content['justification'],
-                pass: llm_result.content['satisfy']
-              )
-            )
+            return build_runtime_result(image(@expected, actual))
           else
             content = actual.read
             actual.rewind
-            llm_result = text(@expected, content)
-            llm_result.content.strip.downcase == 'yes'
+            return build_runtime_result(text(@expected, content))
           end
         else
           raise ArgumentError, "Unsupported type for LLM matcher: #{actual.class}"
@@ -49,6 +41,29 @@ module PrD
 
       private
 
+      def build_runtime_result(llm_result)
+        content = llm_result&.content
+        unless content.is_a?(Hash) && content.key?('satisfy') && content.key?('justification')
+          raise ArgumentError, 'Invalid LLM response format: expected JSON object with justification and satisfy'
+        end
+
+        PrD::Runtime::TestResult.new(comment: content['justification'], pass: !!content['satisfy'])
+      end
+
+      def ask_with_retry(*args, **kwargs)
+        attempts = 0
+        begin
+          attempts += 1
+          Timeout.timeout(@timeout_seconds) { @llm_client.ask(*args, **kwargs) }
+        rescue Timeout::Error => e
+          raise e if attempts > (@retries + 1)
+          retry
+        rescue StandardError => e
+          raise e if attempts > (@retries + 1)
+          retry
+        end
+      end
+
       def text(expected, actual)
         @llm_client
           .with_instructions(
@@ -56,7 +71,7 @@ module PrD
           )
           .with_params(response_format: { type: 'json_object' })
           .with_schema(TestResult)
-          .ask("The current text : #{actual} \nDoes it satisfy the condition :\n\n#{expected}, respond in json ?")
+        ask_with_retry("The current text : #{actual} \nDoes it satisfy the condition :\n\n#{expected}, respond in json ?")
       end
 
       def image(expected, actual)
@@ -72,7 +87,7 @@ module PrD
             )
             .with_params(response_format: { type: 'json_object' })
             .with_schema(TestResult)
-            .ask("Does this image satisfy the condition :\n\n#{expected} ?\nRespond in json.", with: tempfile.path)
+          ask_with_retry("Does this image satisfy the condition :\n\n#{expected} ?\nRespond in json.", with: tempfile.path)
         end
       end
     end

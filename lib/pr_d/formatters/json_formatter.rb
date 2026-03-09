@@ -1,14 +1,19 @@
+require 'json'
+
 module PrD
   module Formatters
     class JsonFormatter < Formatter
       def initialize(io: $stdout, serializers: {})
-        @io = io
-        @serializers = serializers
+        super(io: io, serializers: serializers)
         @json = {}
       end
 
-      def context(message, level:)
-        @json[:title] = { message: message, level: level }
+      def title(message)
+        @json[:title] = { message: message }
+      end
+
+      def context(message)
+        @json[:context] = { message: message, level: @level }
       end
 
       def success_result(message)
@@ -19,11 +24,18 @@ module PrD
         @json[:failure_result] = message
       end
 
-      def it(description = nil, level: 1, &block)
+      def it(description = nil, &block)
         @json[:it] = { description: description }
       end
 
-      def pending(description = nil, level: 1)
+      def end_it(description = nil, &block)
+      end
+
+      def justification(justification)
+        @json[:justification] = justification
+      end
+
+      def pending(description = nil)
         @json[:pending] = { description: description }
       end
 
@@ -51,9 +63,13 @@ module PrD
         @json[:subject] = subject
       end
 
+      def result(passed_count, failed_count)
+        @json[:result] = { passed: passed_count, failed: failed_count }
+      end
+
       def flush
         @io.puts JSON.pretty_generate(@json)
-        @io.flush
+        super
       end
     end
   end
