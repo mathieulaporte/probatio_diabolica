@@ -58,29 +58,6 @@ module PrD
       end
 
       def matcher(matcher, sources: nil)
-        # case matcher
-        # when Matchers::EqMatcher
-        #   output("Be equal to: #{matcher.expected}", :white, indent: 2)
-        # when Matchers::BeMatcher
-        #   output("Be the same object as: #{matcher.expected}", :white, indent: 2)
-        # when Matchers::IncludesMatcher
-        #   output("Include: #{matcher.expected}", :white, indent: 2)
-        # when Matchers::HaveMatcher
-        #   output("Have: #{matcher.expected}", :white, indent: 2)
-        # when Matchers::LlmMatcher
-        #   output("Satisfy condition: #{matcher.expected}", :white, indent: 2)
-        # when Matchers::AllMatcher
-        #   if sources
-        #     code_line = matcher.expected.source_location.last.to_i
-        #     code = sources.lines[code_line - 1]
-        #     output("all match condition: #{code.strip}", :white, indent: 2)
-        #   else
-        #     output('all match the given condition', :white, indent: 2)
-        #   end
-        # else
-        #   output("match: #{matcher.class}", :white, indent: 2)
-        # end
-
         case matcher
         when Matchers::EqMatcher
           @io << "<p>Be equal to: #{matcher.expected}</p>"
@@ -106,8 +83,8 @@ module PrD
       end
 
       def result(passed_count, failed_count)
-        # color = failed_count > 0 ? :red : :green
-        # output("#{passed_count} passed, #{failed_count} failed", color)
+        color = failed_count > 0 ? :red : :green
+        output("#{passed_count} passed, #{failed_count} failed", color)
       end
 
       def flush
