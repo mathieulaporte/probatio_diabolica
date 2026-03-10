@@ -1,2 +1,10 @@
 .DS_Store
 *.gem
+
+# Bundler
+.bundle/
+vendor/bundle/
+
+# Local runtime outputs
+tmp/
+coverage/

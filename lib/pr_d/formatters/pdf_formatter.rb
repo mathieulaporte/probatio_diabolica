@@ -52,7 +52,12 @@ module PrD
 
       def subject(subject)
         add_event(:subject, message: 'Subject', level: @level)
-        add_event(:detail, message: serialize(subject).to_s, level: @level + 1)
+        if image_file?(subject)
+          add_event(:detail, message: serialize(subject).to_s, level: @level + 1)
+          add_event(:subject_image, message: subject.path, level: @level + 1)
+        else
+          add_event(:detail, message: serialize(subject).to_s, level: @level + 1)
+        end
       end
 
       def pending(description = nil)
@@ -147,6 +152,8 @@ module PrD
             styled_line(document, event[:message], level: event[:level], size: 10, color: COLORS[:muted])
           when :detail, :subject, :justification
             styled_line(document, event[:message], level: event[:level], size: 10, color: COLORS[:text])
+          when :subject_image
+            render_image(document, event[:message], level: event[:level])
           when :result
             document.move_down 8
             styled_line(document, event[:message], level: event[:level], size: 11, style: :bold, color: COLORS[:title])
@@ -189,6 +196,22 @@ module PrD
           )
         end
         document.move_down 2
+      end
+
+      def image_file?(value)
+        value.is_a?(File) && value.path.match?(/\.(png|jpe?g)\z/i)
+      end
+
+      def render_image(document, path, level:)
+        return unless File.exist?(path)
+
+        document.indent(level * 14) do
+          width = [document.bounds.width, 420].min
+          document.image(path, fit: [width, 320], position: :center)
+        end
+        document.move_down 6
+      rescue StandardError
+        styled_line(document, "Unable to render image: #{path}", level: level, size: 9, color: COLORS[:fail])
       end
     end
   end

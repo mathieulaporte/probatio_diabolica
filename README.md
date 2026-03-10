@@ -158,6 +158,27 @@ The runtime keeps a model stack (`it` can temporarily override the parent `conte
 - `PrD::Formatters::HtmlFormatter` (simple HTML output)
 - `PrD::Formatters::JsonFormatter` exists in code but is not currently exposed by `bin/prd`
 
+### Subject rendering policy (best effort)
+
+When you define a `subject`, each formatter tries to render it in the most useful way for its medium:
+
+- `SimpleFormatter`:
+  - renders readable text in terminal
+  - for files, prints a textual representation (for example path, file preview for `.txt`)
+- `HtmlFormatter`:
+  - renders text values directly
+  - for image files (`.png`, `.jpg`, `.jpeg`), embeds the image in the report
+  - for PDF subjects (`File` `.pdf` or `PDF::Reader`), embeds the PDF with a `data:application/pdf;base64,...` URI
+- `PdfFormatter`:
+  - renders text values as report lines
+  - for image files (`.png`, `.jpg`, `.jpeg`), inserts the image directly in the PDF report
+- `JsonFormatter`:
+  - keeps a structured representation for machine processing
+  - `File` values (images, PDFs, text files, etc.) are embedded as base64 payloads
+  - `PDF::Reader` values are also embedded as base64 (`application/pdf`)
+
+The goal is to preserve readability and report size while surfacing the richest representation each formatter can reasonably support.
+
 ## Useful references in this repository
 
 - Basic example: `examples/basics_spec.rb`

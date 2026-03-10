@@ -1,11 +1,11 @@
 describe 'Image tests examples' do
   context 'with image analysis', model: "mistral-small-latest" do
-    let(:image) { File.open('examples/random_photo.png') }
+    subject { File.open('examples/random_photo.png') }
     it 'should have a haystack' do
-      expect(image).to satisfy('There is a haystack in the image.')
+      expect.to satisfy('There is a haystack in the image.')
     end
     it 'should not have a cat' do
-      expect(image).not_to satisfy('There is a cat in the image.')
+      expect.not_to satisfy('There is a cat in the image.')
     end
   end
-end 
+end

@@ -1,4 +1,5 @@
 require 'json'
+require 'base64'
 
 module PrD
   module Formatters
@@ -80,6 +81,89 @@ module PrD
 
       def add_event(type:, **payload)
         @events << payload.merge(type:, level: @level)
+      end
+
+      def serialize(value)
+        serializer = @serializers[value.class]
+        return serializer.call(value) if serializer
+
+        if value.is_a?(File)
+          return serialize_file(value)
+        end
+
+        if defined?(PDF::Reader) && value.is_a?(PDF::Reader)
+          return serialize_pdf_reader(value)
+        end
+
+        if value.is_a?(Array)
+          return value.map { |v| serialize(v) }
+        end
+
+        if value.is_a?(Hash)
+          return value.transform_values { |v| serialize(v) }
+        end
+
+        value
+      end
+
+      def serialize_file(file)
+        file.rewind if file.respond_to?(:rewind)
+        content = file.read
+        file.rewind if file.respond_to?(:rewind)
+
+        {
+          type: 'file',
+          path: file.path,
+          mime_type: mime_type_for_path(file.path),
+          encoding: 'base64',
+          bytes: Base64.strict_encode64(content || '')
+        }
+      end
+
+      def serialize_pdf_reader(reader)
+        pdf_content = pdf_reader_bytes(reader)
+        {
+          type: 'pdf_reader',
+          mime_type: 'application/pdf',
+          encoding: 'base64',
+          bytes: Base64.strict_encode64(pdf_content || '')
+        }
+      end
+
+      def pdf_reader_bytes(reader)
+        objects = reader.instance_variable_get(:@objects)
+        io = objects&.instance_variable_get(:@io)
+        return io.string if io.respond_to?(:string)
+
+        return nil unless io.respond_to?(:read)
+
+        current_pos = io.pos if io.respond_to?(:pos)
+        content = io.read
+        io.seek(current_pos) if io.respond_to?(:seek) && !current_pos.nil?
+        content
+      end
+
+      def mime_type_for_path(path)
+        return 'application/octet-stream' if path.nil?
+
+        case File.extname(path).downcase
+        when '.png'
+          'image/png'
+        when '.jpg', '.jpeg'
+          'image/jpeg'
+        when '.pdf'
+          'application/pdf'
+        when '.txt'
+          'text/plain'
+        when '.html', '.htm'
+          'text/html'
+        when '.json'
+          'application/json'
+        when '.csv'
+          'text/csv'
+        else
+          'application/octet-stream'
+        end
       end
     end
   end

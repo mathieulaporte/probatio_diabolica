@@ -6,9 +6,11 @@ describe 'Browser helpers examples' do
     expect(extracted).to(includes('Loaded via JS'))
   end
 
-  it 'captures a screenshot' do
-    image = screen(at: fixture_url, width: 1024, height: 768, warmup_time: 1)
-    expect(File.exist?(image.path)).to(eq(true))
+  context 'with a screenshot', model: "mistral-small-latest"  do
+    subject {screen(at: fixture_url, width: 1024, height: 768, warmup_time: 1) }
+    it 'captures a screenshot' do
+      expect.to satisfy('The screenshot contains the text "browser fixture"')
+    end
   end
 
   it 'returns the rendered html body' do
@@ -16,9 +18,12 @@ describe 'Browser helpers examples' do
     expect(rendered).to(includes('browser fixture'))
   end
 
-  it 'generates a readable pdf' do
-    document = pdf(at: fixture_url, warmup_time: 1)
-    expect(document.pages.length > 0).to(eq(true))
+  context 'with a PDF generation' do
+    subject { pdf(at: fixture_url, warmup_time: 1) }
+
+    it 'generates a readable pdf with at least one page' do
+      expect(subject.pages.length > 0).to(eq(true))
+    end
   end
 
   it 'returns network urls as an array' do
