@@ -75,14 +75,14 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'fails fast on unknown formatter type in CLI' do
-    _stdout, stderr, status = Open3.capture3('bundle exec ruby bin/prd -f spec/self_hosted_spec.rb -t unknown')
+    _stdout, stderr, status = Open3.capture3('bundle exec ruby bin/prd spec/self_hosted_spec.rb -t unknown')
 
     expect(status.success?).to(be(false))
     expect(stderr).to(includes('Unsupported formatter type: unknown. Supported: simple, html, json, pdf'))
   end
 
   it 'fails fast on missing CLI path' do
-    _stdout, stderr, status = Open3.capture3('bundle exec ruby bin/prd -f ./spec/does_not_exist_spec.rb')
+    _stdout, stderr, status = Open3.capture3('bundle exec ruby bin/prd ./spec/does_not_exist_spec.rb')
 
     expect(status.success?).to(be(false))
     expect(stderr).to(includes('Path not found: ./spec/does_not_exist_spec.rb'))
