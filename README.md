@@ -1,5 +1,9 @@
 # Probatio Diabolica
 
+<p align="center">
+  <img src="diable.png" alt="Logo Probatio Diabolica" width="260" />
+</p>
+
 A Ruby DSL-based testing framework with classic matchers and LLM-powered matchers (text and image).
 
 This project is experimental and not production-ready.
@@ -39,7 +43,7 @@ require "probatio_diabolica"
 
 ```bash
 bundle install
-bundle exec prd -f examples/basics_spec.rb
+bundle exec prd examples/basics_spec.rb
 ```
 
 ### Build and install as a gem
@@ -55,7 +59,7 @@ gem install ./probatio_diabolica-*.gem
 After installation, you can run:
 
 ```bash
-prd -f examples/basics_spec.rb
+prd examples/basics_spec.rb
 ```
 
 If `prd` is not found, add your gem bin directory to `PATH`:
@@ -84,18 +88,17 @@ Without valid configuration, tests using `satisfy(...)` will fail.
 Command:
 
 ```bash
-prd -f <file_or_directory> [options]
+prd <file_or_directory> [options]
 ```
 
 From source checkout (without gem install), use:
 
 ```bash
-bundle exec prd -f <file_or_directory> [options]
+bundle exec prd <file_or_directory> [options]
 ```
 
 Supported options:
 
-- `-f, --file FILE` path to a spec file or directory (required)
 - `-o, --out DIR` writes output to `DIR/report.qd` (otherwise stdout)
 - `-c, --config FILE` Ruby config file to require
 - `-t, --type TYPE` formatter type (`simple` by default, `html` supported)
@@ -104,13 +107,13 @@ Examples:
 
 ```bash
 # single file
-bundle exec prd -f examples/basics_spec.rb
+bundle exec prd examples/basics_spec.rb
 
 # all *_spec.rb files in a directory
-bundle exec prd -f examples
+bundle exec prd examples
 
 # HTML report
-bundle exec prd -f examples/image_spec.rb -t html -o ./tmp
+bundle exec prd examples/image_spec.rb -t html -o ./tmp
 ```
 
 ## Available DSL

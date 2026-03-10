@@ -1,6 +1,5 @@
 require 'zeitwerk'
 require 'ruby_llm'
-require 'prism'
 
 module PrD
   LOADER = Zeitwerk::Loader.new
@@ -9,6 +8,7 @@ module PrD
 
   class Runtime
     include PrD::Helpers::ChromeHelper
+    include PrD::Helpers::SourceCodeHelper
 
     class TestResult
       attr_reader :comment, :pass
@@ -148,24 +148,6 @@ module PrD
       @subject
     end
 
-    def source_code(class_or_method)
-      if class_or_method.is_a?(Class)
-        file, line = Object.const_source_location(class_or_method.to_s)
-        return nil unless file
-
-        code = File.read(file)
-        tree = Prism.parse(code)
-        extract_class_from_node(tree.value, class_or_method.to_s, code)
-      else
-        file, line = class_or_method.source_location
-        return nil unless file && line
-
-        code = File.read(file)
-        tree = Prism.parse(code)
-        extract_method_from_node(tree.value, class_or_method.name, code)
-      end
-    end
-
     def expect(*args, &block)
       if args.length >= 1
         @actual = args.first
@@ -209,37 +191,5 @@ module PrD
       Time.now.utc.strftime('%Y-%m-%d %H:%M:%S UTC')
     end
 
-    def extract_method_from_node(node, method_name, code)
-      return nil unless node.respond_to?(:child_nodes)
-
-      node.child_nodes.each do |child|
-        if child.is_a?(Prism::DefNode) && child.name.to_s == method_name.to_s
-          return code[child.location.start_offset...child.location.end_offset]
-        end
-
-        found = extract_method_from_node(child, method_name, code)
-        return found if found
-      end
-
-      nil
-    end
-
-    def extract_class_from_node(node, class_name, code)
-      return nil unless node.respond_to?(:child_nodes)
-
-      node.child_nodes.each do |child|
-        if child.is_a?(Prism::ClassNode)
-          path = child.constant_path&.slice
-          if path == class_name.to_s.split('::').last
-            return code[child.location.start_offset...child.location.end_offset]
-          end
-        end
-
-        found = extract_class_from_node(child, class_name, code)
-        return found if found
-      end
-
-      nil
-    end
   end
 end

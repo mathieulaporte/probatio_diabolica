@@ -10,8 +10,7 @@ require 'optparse'
 options = {}
 OptionParser
   .new do |opts|
-    opts.banner = 'Usage: prd [options]'
-    opts.on('-f', '--file FILE', 'Specify the test file to run') { |file| options[:file] = file }
+    opts.banner = 'Usage: prd [options] FILE_OR_DIR'
     opts.on('-o', '--out DIR', 'Specify the output directory') { |dir| options[:out] = dir }
     opts.on('-c', '--config FILE', 'Specify the config file') { |file| options[:config] = file }
     opts.on('-t', '--type TYPE', 'Specify the formatter type (simple, html, json, pdf)') do |type|
@@ -20,16 +19,18 @@ OptionParser
   end
   .parse!
 
-raise 'No tests found. Please specify a test file using -f option.' if options[:file].nil? || options[:file].empty?
-raise "Path not found: #{options[:file]}" unless File.exist?(options[:file])
+input_path = ARGV.shift
+raise 'No tests found. Please specify a test file or directory (e.g. prd examples/basics_spec.rb).' if input_path.nil? || input_path.empty?
+raise "Unexpected arguments: #{ARGV.join(' ')}" unless ARGV.empty?
+raise "Path not found: #{input_path}" unless File.exist?(input_path)
 
 tests =
-  if File.directory?(options[:file])
-    files = Dir[File.join(options[:file], '**', '*_spec.rb')].sort
-    raise "No spec files found in directory: #{options[:file]}" if files.empty?
+  if File.directory?(input_path)
+    files = Dir[File.join(input_path, '**', '*_spec.rb')].sort
+    raise "No spec files found in directory: #{input_path}" if files.empty?
     files.map { |file| File.read(file) }
-  elsif File.file?(options[:file])
-    [File.read(options[:file])]
+  elsif File.file?(input_path)
+    [File.read(input_path)]
   end
 
 io =
