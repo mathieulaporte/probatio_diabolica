@@ -1,6 +1,5 @@
 require 'digest'
 require 'fileutils'
-require 'ferrum'
 require 'pdf-reader'
 
 module PrD
@@ -69,6 +68,7 @@ module PrD
       private
 
       def chrome_browser
+        ensure_ferrum_loaded!
         @browser ||= Ferrum::Browser.new
       end
 
@@ -84,6 +84,14 @@ module PrD
         annex_dir = File.join(base_dir, 'annex')
         FileUtils.mkdir_p(annex_dir)
         annex_dir
+      end
+
+      def ensure_ferrum_loaded!
+        return if defined?(::Ferrum::Browser)
+
+        require 'ferrum'
+      rescue LoadError => e
+        raise LoadError, "Browser helpers require the 'ferrum' gem. Install it with `gem install ferrum` or add `gem 'ferrum'` to your Gemfile. (#{e.message})"
       end
     end
   end

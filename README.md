@@ -153,20 +153,23 @@ end
 
 ### Browser helpers (Ferrum)
 
-`PrD::Runtime` expose des helpers pour tester du contenu chargé dans Chrome:
+`PrD::Runtime` exposes helpers to test content loaded in Chrome:
 
-- `screen(at:, width:, height:, warmup_time:)` capture PNG et retourne un `File`
-- `text(at:, css:, warmup_time:)` extrait un noeud CSS dans un `.txt` et retourne un `File`
-- `network(at:, warmup_time:)` retourne le trafic réseau Ferrum
-- `network_urls(at:, warmup_time:)` retourne les URLs du trafic
-- `pdf(at:, warmup_time:)` génère un PDF et retourne un `PDF::Reader`
-- `html(at:, warmup_time:)` retourne le HTML (`browser.body`)
+- `screen(at:, width:, height:, warmup_time:)` captures a PNG and returns a `File`
+- `text(at:, css:, warmup_time:)` extracts a CSS node into a `.txt` file and returns a `File`
+- `network(at:, warmup_time:)` returns Ferrum network traffic
+- `network_urls(at:, warmup_time:)` returns traffic URLs
+- `pdf(at:, warmup_time:)` generates a PDF and returns a `PDF::Reader`
+- `html(at:, warmup_time:)` returns HTML (`browser.body`)
 
-Pré-requis:
+Prerequisites:
 
-- Chrome/Chromium doit être installé.
+- Chrome/Chromium must be installed.
+- The `ferrum` gem is optional and only required for these helpers.
+  - Add `gem 'ferrum'` to your Gemfile, or install it with `gem install ferrum`.
+  - If it is missing, an explicit `LoadError` is raised on the first browser helper call.
 
-Exemple:
+Example:
 
 ```ruby
 it 'checks dynamic content loaded in browser' do
@@ -174,6 +177,16 @@ it 'checks dynamic content loaded in browser' do
   expect(page_text).to(includes('Example Domain'))
 end
 ```
+
+### Source code helper (Prism)
+
+`source_code(...)` uses the `prism` gem to parse Ruby source and extract class/method code.
+
+Prerequisites:
+
+- The `prism` gem is optional and only required for `source_code(...)`.
+  - Add `gem 'prism'` to your Gemfile, or install it with `gem install prism`.
+  - If it is missing, an explicit `LoadError` is raised on the first `source_code(...)` call.
 
 ## LLM models
 

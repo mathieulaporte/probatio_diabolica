@@ -1,9 +1,9 @@
-require 'prism'
-
 module PrD
   module Helpers
     module SourceCodeHelper
       def source_code(class_or_method)
+        ensure_prism_loaded!
+
         if class_or_method.is_a?(Class)
           file, = Object.const_source_location(class_or_method.to_s)
           return nil unless file
@@ -52,6 +52,14 @@ module PrD
         end
 
         nil
+      end
+
+      def ensure_prism_loaded!
+        return if defined?(::Prism)
+
+        require 'prism'
+      rescue LoadError => e
+        raise LoadError, "Source code helpers require the 'prism' gem. Install it with `gem install prism` or add `gem 'prism'` to your Gemfile. (#{e.message})"
       end
     end
   end

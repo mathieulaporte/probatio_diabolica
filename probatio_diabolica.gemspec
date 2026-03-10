@@ -32,9 +32,7 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "ruby_llm"
   spec.add_dependency 'ruby_llm-schema'
-  spec.add_dependency 'ferrum'
   spec.add_dependency 'pdf-reader'
   spec.add_dependency 'prawn'
-  spec.add_dependency 'prism'
   spec.add_dependency 'zeitwerk'
 end
