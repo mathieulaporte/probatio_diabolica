@@ -22,7 +22,7 @@ module PrD
       end
 
       def it(description = nil, &block)
-        title(description.capitalize)
+        title(description.to_s.capitalize)
       end
 
       def justification(justification)

@@ -5,71 +5,81 @@ module PrD
     class JsonFormatter < Formatter
       def initialize(io: $stdout, serializers: {})
         super(io: io, serializers: serializers)
-        @json = {}
+        @events = []
+        @summary = { passed: 0, failed: 0 }
       end
 
       def title(message)
-        @json[:title] = { message: message }
+        add_event(type: 'title', message: message)
       end
 
       def context(message)
-        @json[:context] = { message: message, level: @level }
+        add_event(type: 'context', message: message)
       end
 
       def success_result(message)
-        @json[:success_result] = message
+        add_event(type: 'success_result', message: message)
       end
 
       def failure_result(message)
-        @json[:failure_result] = message
+        add_event(type: 'failure_result', message: message)
       end
 
       def it(description = nil, &block)
-        @json[:it] = { description: description }
+        add_event(type: 'it', description: description)
       end
 
       def end_it(description = nil, &block)
+        add_event(type: 'end_it', description: description)
       end
 
       def justification(justification)
-        @json[:justification] = justification
+        add_event(type: 'justification', message: justification)
       end
 
       def pending(description = nil)
-        @json[:pending] = { description: description }
+        add_event(type: 'pending', description: description)
       end
 
       def expect(expectation)
-        @json[:expect] = expectation
+        add_event(type: 'expect', value: serialize(expectation))
       end
 
       def to
-        @json[:to] = {}
+        add_event(type: 'to')
       end
 
       def not_to
-        @json[:not_to] = {}
+        add_event(type: 'not_to')
       end
 
       def matcher(matcher, sources: nil)
-        @json[:matcher] = { matcher: matcher }
+        add_event(type: 'matcher', matcher: matcher.class.to_s, expected: serialize(matcher.expected))
       end
 
       def output(message, color = nil, figure: nil, indent: 0)
-        @json[:output] = { message: message }
+        add_event(type: 'output', message: serialize(message), color: color, figure: figure, indent: indent)
       end
 
       def subject(subject)
-        @json[:subject] = subject
+        add_event(type: 'subject', value: serialize(subject))
       end
 
       def result(passed_count, failed_count)
-        @json[:result] = { passed: passed_count, failed: failed_count }
+        @summary = { passed: passed_count, failed: failed_count }
+        add_event(type: 'result', passed: passed_count, failed: failed_count)
       end
 
       def flush
-        @io.puts JSON.pretty_generate(@json)
+        payload = { format: 'prd-json-v1', events: @events, summary: @summary }
+        @io.puts JSON.pretty_generate(payload)
         super
+      end
+
+      private
+
+      def add_event(type:, **payload)
+        @events << payload.merge(type:, level: @level)
       end
     end
   end

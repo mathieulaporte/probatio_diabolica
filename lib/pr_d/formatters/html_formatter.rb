@@ -1,26 +1,29 @@
+require 'cgi'
+
 module PrD
   module Formatters
     class HtmlFormatter < Formatter
-
       def initialize(io: $stdout, serializers: {})
         super(io: io, serializers: serializers)
         @io << '<html><head><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"></head><body><main class="container">'
       end
 
       def context(message)
-        @io << "<h#{@level + 1}>#{message}</h#{@level + 1}>"
+        level = heading_level
+        @io << "<h#{level}>#{escape(message)}</h#{level}>"
       end
 
       def success_result(message)
-        @io << "<div class='success'>✓ #{message}</div>"
+        @io << "<div class='success'>✓ #{escape(message)}</div>"
       end
 
       def failure_result(message)
-        @io << "<div class='failure'>✗ #{message}</div>"
+        @io << "<div class='failure'>✗ #{escape(message)}</div>"
       end
 
       def it(description = nil, &block)
-        @io << "<h#{@level + 1}>#{description}</h#{@level + 1}>"
+        level = heading_level
+        @io << "<h#{level}>#{escape(description)}</h#{level}>"
         @io << '<div class="grid">'
       end
 
@@ -29,24 +32,25 @@ module PrD
       end
 
       def justification(justification)
-        @io << "<p><strong>Justification:</strong> #{justification}</p>"
+        @io << "<p><strong>Justification:</strong> #{escape(justification)}</p>"
       end
 
       def let(value)
       end
 
       def subject(subject)
-        # title('Subject')
-        # output(subject, :white, indent: 1)
+        @io << "<h#{heading_level}>Subject</h#{heading_level}>"
+        @io << "<p>#{escape(serialize(subject).to_s)}</p>"
       end
 
       def pending(description = nil)
-        @io << "<h#{@level + 1}>#{description || 'Pending test'}</h#{@level + 1}>"
+        level = heading_level
+        @io << "<h#{level}>#{escape(description || 'Pending test')}</h#{level}>"
         @io << "<p>⚠ This test is pending and has not been executed.</p>"
       end
 
       def expect(expectation)
-        @io << "<p>Expect: #{expectation}</p>"
+        @io << "<p>Expect: #{escape(serialize(expectation).to_s)}</p>"
       end
 
       def to
@@ -60,84 +64,46 @@ module PrD
       def matcher(matcher, sources: nil)
         case matcher
         when Matchers::EqMatcher
-          @io << "<p>Be equal to: #{matcher.expected}</p>"
+          @io << "<p>Be equal to: #{escape(serialize(matcher.expected).to_s)}</p>"
         when Matchers::BeMatcher
-          @io << "<p>Be the same object as: #{matcher.expected}</p>"
+          @io << "<p>Be the same object as: #{escape(serialize(matcher.expected).to_s)}</p>"
         when Matchers::IncludesMatcher
-          @io << "<p>Include: #{matcher.expected}</p>"
+          @io << "<p>Include: #{escape(serialize(matcher.expected).to_s)}</p>"
         when Matchers::HaveMatcher
-          @io << "<p>Have: #{matcher.expected}</p>"
+          @io << "<p>Have: #{escape(serialize(matcher.expected).to_s)}</p>"
         when Matchers::LlmMatcher
-          @io << "<p>Satisfy condition: #{matcher.expected}</p>"
+          @io << "<p>Satisfy condition: #{escape(serialize(matcher.expected).to_s)}</p>"
         when Matchers::AllMatcher
           if sources
             code_line = matcher.expected.source_location.last.to_i
             code = sources.lines[code_line - 1]
-            @io << "<p>All match condition: #{code.strip}</p>"
+            @io << "<p>All match condition: #{escape(code.strip)}</p>"
           else
             @io << "<p>All match the given condition</p>"
           end
         else
-          @io << "<p>Match: #{matcher.class}</p>"
+          @io << "<p>Match: #{escape(matcher.class.to_s)}</p>"
         end
       end
 
       def result(passed_count, failed_count)
-        color = failed_count > 0 ? :red : :green
-        output("#{passed_count} passed, #{failed_count} failed", color)
+        summary_class = failed_count > 0 ? 'failure' : 'success'
+        @io << "<p class='#{summary_class}'><strong>#{passed_count} passed, #{failed_count} failed</strong></p>"
       end
 
       def flush
         @io << '</main></body></html>'
-        @io.flush
+        super
       end
 
       private
 
-      def output(message, color = :default, figure: nil, indent: 0)
-        colored_message = "#{COLOR_MAPPING[color]}#{message}#{COLOR_MAPPING[:default]}"
-        case message
-        when Symbol
-          @io.puts "#{INDENT * indent}#{message}"
-        when Array
-          message.each { |line| output(line, color, figure: figure, indent: indent) }
-        when String
-          if message.include?("\n")
-            @io.puts "#{COLOR_MAPPING[color]}#{INDENT * indent}--- Code Block ---#{COLOR_MAPPING[:default]}"
-            message.split("\n").each { |line| @io.puts "#{INDENT * (indent + 1)}#{line}" }
-            @io.puts "#{COLOR_MAPPING[color]}#{INDENT * indent}--- End Block ---#{COLOR_MAPPING[:default]}"
-          else
-            @io.puts indented_message(colored_message)
-          end
-        when File
-          if message.path.end_with?('.png', '.jpg', '.jpeg')
-            # output(AsciiArt.new(message.path).to_ascii_art(color: true, width: 120), color, indent: indent)
-            output("Caption: #{figure}", color, indent: indent + 1) if figure
-          elsif message.path.end_with?('.csv')
-            output("CSV file: #{message.path}", color, indent: indent)
-          elsif message.path.end_with?('.txt')
-            output("Text file: #{message.path}", color, indent: indent)
-            if File.exist?(message.path)
-              File.readlines(message.path).each { |line| output(line.chomp, color, indent: indent + 1) }
-            end
-          else
-            output("File: #{message.path}", color, indent: indent)
-          end
-        else
-          if @serializers[message.class]
-            output(@serializers[message.class].call(message), color, figure: figure, indent: indent)
-          else
-            output(message.to_s, color, figure: figure, indent: indent)
-          end
-        end
+      def heading_level
+        [[@level + 1, 1].max, 6].min
       end
 
-      def title(message)
-        output(message, :yellow)
-      end
-
-      def indented_message(message, indent_incr: 0)
-        "#{INDENT * (@level + indent_incr)}#{message}"
+      def escape(message)
+        CGI.escape_html(message.to_s)
       end
     end
   end

@@ -10,7 +10,7 @@ OptionParser
     opts.on('-f', '--file FILE', 'Specify the test file to run') { |file| options[:file] = file }
     opts.on('-o', '--out DIR', 'Specify the output directory') { |dir| options[:out] = dir }
     opts.on('-c', '--config FILE', 'Specify the config file') { |file| options[:config] = file }
-    opts.on('-t', '--type TYPE', 'Specify the formatter type (simple, html, json)') do |type|
+    opts.on('-t', '--type TYPE', 'Specify the formatter type (simple, html, json, pdf)') do |type|
       options[:formatter] = type
     end
   end
@@ -30,10 +30,20 @@ tests =
 
 io =
   if options[:out].nil?
+    raise 'PDF formatter requires --out to write a binary report file.' if options[:formatter] == 'pdf'
     STDOUT
   else
     Dir.mkdir(options[:out]) unless Dir.exist?(options[:out])
-    File.open(File.join(options[:out], 'report.qd'), 'w')
+    report_filename = case options[:formatter]
+                      when 'html'
+                        'report.html'
+                      when 'pdf'
+                        'report.pdf'
+                      else
+                        'report.qd'
+                      end
+    mode = options[:formatter] == 'pdf' ? 'wb' : 'w'
+    File.open(File.join(options[:out], report_filename), mode)
   end
 
 formatter_class = case options[:formatter]
@@ -43,8 +53,10 @@ formatter_class = case options[:formatter]
                     PrD::Formatters::HtmlFormatter
                   when 'json'
                     PrD::Formatters::JsonFormatter
+                  when 'pdf'
+                    PrD::Formatters::PdfFormatter
                   else
-                    raise "Unsupported formatter type: #{options[:formatter]}. Supported: simple, html, json"
+                    raise "Unsupported formatter type: #{options[:formatter]}. Supported: simple, html, json, pdf"
                   end
 
 serializers = {

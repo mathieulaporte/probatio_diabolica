@@ -1,5 +1,6 @@
 require 'stringio'
 require 'open3'
+require 'json'
 
 describe 'PrD self-hosted reliability' do
   let(:simple_report) do
@@ -77,7 +78,7 @@ describe 'PrD self-hosted reliability' do
     _stdout, stderr, status = Open3.capture3('bundle exec ruby bin/prd -f spec/self_hosted_spec.rb -t unknown')
 
     expect(status.success?).to(be(false))
-    expect(stderr).to(includes('Unsupported formatter type: unknown. Supported: simple, html, json'))
+    expect(stderr).to(includes('Unsupported formatter type: unknown. Supported: simple, html, json, pdf'))
   end
 
   it 'fails fast on missing CLI path' do
@@ -106,6 +107,27 @@ describe 'PrD self-hosted reliability' do
     expect(html).to(includes('<html>'))
     expect(html).to(includes('</html>'))
     expect(html).to(includes('<main class="container">'))
+    expect(html).to(includes('<strong>1 passed, 0 failed</strong>'))
+  end
+
+  it 'escapes HTML content in HtmlFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe '<script>alert(1)</script>' do
+          it 'renders escaped content' do
+            expect('<b>unsafe</b>').to(eq('<b>unsafe</b>'))
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    html = io.read
+    expect(html).to(includes('&lt;script&gt;alert(1)&lt;/script&gt;'))
+    expect(html).to(includes('&lt;b&gt;unsafe&lt;/b&gt;'))
   end
 
   it 'keeps LLM matcher deterministic with a fake client' do
@@ -121,5 +143,48 @@ describe 'PrD self-hosted reliability' do
 
     expect(result.pass).to(eq(true))
     expect(result.comment).to(eq('Checked locally'))
+  end
+
+  it 'produces structured JSON formatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::JsonFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'JSON suite' do
+          it 'works' do
+            expect(1).to(eq(1))
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    json = JSON.parse(io.read)
+
+    expect(json['format']).to(eq('prd-json-v1'))
+    expect(json['summary']['passed']).to(eq(1))
+    expect(json['summary']['failed']).to(eq(0))
+    expect(json['events'].is_a?(Array)).to(eq(true))
+    expect(json['events'].any? { |e| e['type'] == 'matcher' }).to(eq(true))
+  end
+
+  it 'produces a valid PDF report with Prawn formatter' do
+    io = StringIO.new
+    formatter = PrD::Formatters::PdfFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'PDF suite' do
+          it 'works' do
+            expect(1).to(eq(1))
+          end
+        end
+      SPEC
+    ])
+
+    content = io.string
+    expect(content.start_with?('%PDF-')).to(eq(true))
+    expect(content.length > 100).to(eq(true))
   end
 end

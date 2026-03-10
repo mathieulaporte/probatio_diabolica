@@ -1,5 +1,5 @@
 describe 'Image tests examples' do
-  context 'with image analysis', model: "mistralai/mistral-small-3.2-24b-instruct:free" do
+  context 'with image analysis', model: "mistral-small-latest" do
     let(:image) { File.open('examples/random_photo.png') }
     it 'should have a haystack' do
       expect(image).to satisfy('There is a haystack in the image.')

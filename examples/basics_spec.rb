@@ -39,7 +39,7 @@ describe 'Basic tests examples' do
     pending 'this test is pending and should not run'
   end
 
-  context 'with llm matcher', model: 'qwen/qwen-2.5-72b-instruct:free' do
+  context 'with llm matcher', model: 'ministral-14b-latest' do
     let(:affirmation) { 'The capital of France is Paris.' }
     let(:wrong_affirmation) { 'The capital of France is Berlin.' }
 

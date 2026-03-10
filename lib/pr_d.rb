@@ -1,10 +1,12 @@
-require_relative './pr_d/matchers'
-require_relative './pr_d/formatters'
-
+require 'zeitwerk'
 require 'ruby_llm'
 require 'prism'
 
 module PrD
+  LOADER = Zeitwerk::Loader.new
+  LOADER.push_dir(File.join(__dir__, 'pr_d'), namespace: self)
+  LOADER.setup
+
   class Runtime
     class TestResult
       attr_reader :comment, :pass
@@ -53,7 +55,13 @@ module PrD
       end
       @models_stack = []
       if config_file
-        require config_file
+        if File.exist?(config_file)
+          require File.expand_path(config_file)
+        elsif File.exist?(File.expand_path(config_file, Dir.pwd))
+          require File.expand_path(config_file, Dir.pwd)
+        else
+          require config_file
+        end
       elsif File.exist?('prd_helper.rb')
         require './prd_helper'
       end

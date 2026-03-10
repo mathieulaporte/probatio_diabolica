@@ -1,6 +1,4 @@
-require 'base64'
 require 'tempfile'
-require 'ruby_llm'
 require 'ruby_llm/schema'
 require 'timeout'
 

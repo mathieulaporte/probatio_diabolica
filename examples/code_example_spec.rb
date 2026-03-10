@@ -1,5 +1,5 @@
 describe 'Code tests examples' do
-  context 'The code of the AllMatcher', model: "qwen/qwen-2.5-coder-32b-instruct:free" do
+  context 'The code of the AllMatcher', model: "codestral-2508" do
     let(:all_matcher_code) do
       source_code(PrD::Matchers::AllMatcher)
     end

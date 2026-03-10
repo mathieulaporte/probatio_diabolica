@@ -73,6 +73,18 @@ module PrD
       def flush
         @io.flush
       end
+
+      private
+
+      def serialize(value)
+        serializer = @serializers[value.class]
+        return serializer.call(value) if serializer
+        return value.path if value.is_a?(File)
+        return value.map { |v| serialize(v) } if value.is_a?(Array)
+        return value.transform_values { |v| serialize(v) } if value.is_a?(Hash)
+
+        value
+      end
     end
   end
 end

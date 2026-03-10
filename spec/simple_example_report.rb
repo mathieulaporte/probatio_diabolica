@@ -1,7 +1,7 @@
 require 'stringio'
 require './lib/pr_d'
 describe 'Simple example report' do
-  context 'with basic expectations', model: 'mistralai/devstral-small-2505:free' do
+  context 'with basic expectations', model: 'codestral-2508' do
     subject do
       io = StringIO.new 
       PrD::Runtime.new(formatter: PrD::Formatters::SimpleFormatter.new(io: , serializers: {}), output_dir: nil, config_file: nil).run([File.read('./examples/basics_spec.rb')])
