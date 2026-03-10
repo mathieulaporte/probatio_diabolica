@@ -8,3 +8,4 @@ vendor/bundle/
 # Local runtime outputs
 tmp/
 coverage/
+prd_helper.rb

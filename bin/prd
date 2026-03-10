@@ -1,6 +1,10 @@
 #!/usr/bin/env ruby
 
-require_relative '../lib/pr_d'
+begin
+  require 'pr_d'
+rescue LoadError
+  require_relative '../lib/pr_d'
+end
 require 'optparse'
 
 options = {}

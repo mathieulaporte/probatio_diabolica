@@ -29,11 +29,39 @@ Then:
 bundle install
 ```
 
+In Ruby code, you can load it with:
+
+```ruby
+require "probatio_diabolica"
+```
+
 ### From this repository (local development)
 
 ```bash
 bundle install
-bundle exec ruby bin/prd -f examples/basics_spec.rb
+bundle exec prd -f examples/basics_spec.rb
+```
+
+### Build and install as a gem
+
+```bash
+# build the package
+gem build probatio_diabolica.gemspec
+
+# install locally from the built gem
+gem install ./probatio_diabolica-*.gem
+```
+
+After installation, you can run:
+
+```bash
+prd -f examples/basics_spec.rb
+```
+
+If `prd` is not found, add your gem bin directory to `PATH`:
+
+```bash
+export PATH="$(ruby -e 'print Gem.user_dir')/bin:$PATH"
 ```
 
 ## Configuration LLM
@@ -56,7 +84,13 @@ Without valid configuration, tests using `satisfy(...)` will fail.
 Command:
 
 ```bash
-bundle exec ruby bin/prd -f <file_or_directory> [options]
+prd -f <file_or_directory> [options]
+```
+
+From source checkout (without gem install), use:
+
+```bash
+bundle exec prd -f <file_or_directory> [options]
 ```
 
 Supported options:
@@ -70,13 +104,13 @@ Examples:
 
 ```bash
 # single file
-bundle exec ruby bin/prd -f examples/basics_spec.rb
+bundle exec prd -f examples/basics_spec.rb
 
 # all *_spec.rb files in a directory
-bundle exec ruby bin/prd -f examples
+bundle exec prd -f examples
 
 # HTML report
-bundle exec ruby bin/prd -f examples/image_spec.rb -t html -o ./tmp
+bundle exec prd -f examples/image_spec.rb -t html -o ./tmp
 ```
 
 ## Available DSL

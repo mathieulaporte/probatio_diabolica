@@ -1,17 +1,31 @@
 # frozen_string_literal: true
 
+require_relative "lib/pr_d/version"
+
 Gem::Specification.new do |spec|
   spec.name          = "probatio_diabolica"
-  spec.version       = "0.1.0"
-  spec.authors       = ["Votre Nom"]
-  spec.email         = ["votre.email@example.com"]
+  spec.version       = PrD::VERSION
+  spec.authors       = ["Laporte Mathieu"]
+  spec.email         = ["mathieu.laporte+prd@gmail.com"]
 
-  spec.summary       = "Une courte description de votre gem."
-  spec.description   = "Une description plus détaillée de votre gem."
-  spec.homepage      = "https://example.com/llm_spec"
+  spec.summary       = "A Ruby DSL testing framework with classic and LLM-powered matchers."
+  spec.description   = "Probatio Diabolica runs custom *_spec.rb files with a DSL inspired by RSpec and supports text/image/PDF reporting."
+  spec.homepage      = "https://github.com/syadem/probatio_diabolica"
   spec.license       = "MIT"
+  spec.required_ruby_version = ">= 3.1"
 
-  spec.files         = Dir["lib/**/*.rb", "README.md"]
+  spec.metadata = {
+    "source_code_uri" => "https://github.com/syadem/probatio_diabolica",
+    "changelog_uri" => "https://github.com/syadem/probatio_diabolica/releases"
+  }
+
+  spec.files = Dir[
+    "lib/**/*.rb",
+    "bin/prd",
+    "README.md",
+    "Gemfile",
+    "probatio_diabolica.gemspec"
+  ]
   spec.bindir        = "bin"
   spec.executables << "prd"
   spec.require_paths = ["lib"]
