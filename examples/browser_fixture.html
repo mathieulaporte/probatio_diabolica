@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Browser Fixture</title>
+    <style>
+      body {
+        font-family: sans-serif;
+      }
+      #status {
+        color: #0a7a39;
+      }
+    </style>
+    <script>
+      window.addEventListener("load", () => {
+        const status = document.getElementById("status");
+        setTimeout(() => {
+          status.textContent = "Loaded via JS";
+        }, 250);
+      });
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>browser fixture</h1>
+      <p id="status">Loading...</p>
+    </main>
+  </body>
+</html>

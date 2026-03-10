@@ -8,6 +8,8 @@ module PrD
   LOADER.setup
 
   class Runtime
+    include PrD::Helpers::ChromeHelper
+
     class TestResult
       attr_reader :comment, :pass
 
@@ -197,6 +199,7 @@ module PrD
       @formatter.failure_result("An error occurred while running tests: #{e.message}")
       @failed_count += 1
     ensure
+      close_chrome_browser if respond_to?(:close_chrome_browser, true)
       @formatter.flush
     end
 

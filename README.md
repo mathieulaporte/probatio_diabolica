@@ -114,6 +114,30 @@ end
 - `all(proc)` checks all elements against a block
 - `satisfy(natural_language_condition)` LLM-based validation
 
+### Browser helpers (Ferrum)
+
+`PrD::Runtime` expose des helpers pour tester du contenu chargé dans Chrome:
+
+- `screen(at:, width:, height:, warmup_time:)` capture PNG et retourne un `File`
+- `text(at:, css:, warmup_time:)` extrait un noeud CSS dans un `.txt` et retourne un `File`
+- `network(at:, warmup_time:)` retourne le trafic réseau Ferrum
+- `network_urls(at:, warmup_time:)` retourne les URLs du trafic
+- `pdf(at:, warmup_time:)` génère un PDF et retourne un `PDF::Reader`
+- `html(at:, warmup_time:)` retourne le HTML (`browser.body`)
+
+Pré-requis:
+
+- Chrome/Chromium doit être installé.
+
+Exemple:
+
+```ruby
+it 'checks dynamic content loaded in browser' do
+  page_text = text(at: 'https://example.com', css: 'main')
+  expect(page_text).to(includes('Example Domain'))
+end
+```
+
 ## LLM models
 
 You can set a model at `context` or `it` level:
@@ -139,6 +163,7 @@ The runtime keeps a model stack (`it` can temporarily override the parent `conte
 - Basic example: `examples/basics_spec.rb`
 - Code analysis example: `examples/code_example_spec.rb`
 - Image example: `examples/image_spec.rb`
+- Browser example: `examples/browser_spec.rb`
 - CLI entrypoint: `bin/prd`
 - DSL runtime: `lib/pr_d.rb`
 
