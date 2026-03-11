@@ -3,6 +3,15 @@ require 'open3'
 require 'json'
 require 'tempfile'
 
+def capture_stderr
+  previous_stderr = $stderr
+  buffer = StringIO.new
+  $stderr = buffer
+  yield
+ensure
+  $stderr = previous_stderr
+end
+
 describe 'PrD self-hosted reliability' do
   let(:simple_report) do
     io = StringIO.new
@@ -69,7 +78,7 @@ describe 'PrD self-hosted reliability' do
     io = StringIO.new
     runtime = PrD::Runtime.new(formatter: PrD::Formatters::SimpleFormatter.new(io:, serializers: {}), output_dir: nil)
 
-    runtime.run([])
+    capture_stderr { runtime.run([]) }
     io.rewind
     output = io.read
     expect(output).to(includes('No tests found. Provide at least one spec content to run.'))
