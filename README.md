@@ -101,7 +101,8 @@ Supported options:
 
 - `-o, --out DIR` writes output to `DIR/report.qd` (otherwise stdout)
 - `-c, --config FILE` Ruby config file to require
-- `-t, --type TYPE` formatter type (`simple` by default, `html` supported)
+- `-t, --type TYPE` formatter type (`simple` by default; supports `simple`, `html`, `json`, `pdf`)
+- `-m, --mode MODE` output verbosity mode (`verbose` by default; supports `verbose`, `synthetic`)
 
 Examples:
 
@@ -114,6 +115,9 @@ bundle exec prd examples
 
 # HTML report
 bundle exec prd examples/image_spec.rb -t html -o ./tmp
+
+# compact synthetic output on console
+bundle exec prd examples/basics_spec.rb --mode synthetic
 ```
 
 ## Available DSL

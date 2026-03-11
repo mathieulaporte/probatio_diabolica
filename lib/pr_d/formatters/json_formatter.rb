@@ -4,65 +4,89 @@ require 'base64'
 module PrD
   module Formatters
     class JsonFormatter < Formatter
-      def initialize(io: $stdout, serializers: {})
-        super(io: io, serializers: serializers)
+      def initialize(io: $stdout, serializers: {}, mode: :verbose)
+        super(io: io, serializers: serializers, mode: mode)
         @events = []
         @summary = { passed: 0, failed: 0 }
       end
 
       def title(message)
+        return if synthetic?
         add_event(type: 'title', message: message)
       end
 
       def context(message)
+        return if synthetic?
         add_event(type: 'context', message: message)
       end
 
       def success_result(message)
+        if synthetic?
+          add_event(type: 'test_result', title: @current_test_title, status: 'PASS')
+          return
+        end
         add_event(type: 'success_result', message: message)
       end
 
       def failure_result(message)
+        if synthetic?
+          add_event(type: 'test_result', title: @current_test_title, status: 'FAIL')
+          return
+        end
         add_event(type: 'failure_result', message: message)
       end
 
       def it(description = nil, &block)
+        @current_test_title = description.to_s
+        return if synthetic?
         add_event(type: 'it', description: description)
       end
 
       def end_it(description = nil, &block)
+        return if synthetic?
         add_event(type: 'end_it', description: description)
       end
 
       def justification(justification)
+        return if synthetic?
         add_event(type: 'justification', message: justification)
       end
 
       def pending(description = nil)
+        if synthetic?
+          add_event(type: 'test_result', title: description || 'Pending test', status: 'PENDING')
+          return
+        end
         add_event(type: 'pending', description: description)
       end
 
       def expect(expectation)
+        return if synthetic?
         add_event(type: 'expect', value: serialize(expectation))
       end
 
       def to
+        return if synthetic?
         add_event(type: 'to')
       end
 
       def not_to
+        return if synthetic?
         add_event(type: 'not_to')
       end
 
       def matcher(matcher, sources: nil)
+        return if synthetic?
         add_event(type: 'matcher', matcher: matcher.class.to_s, expected: serialize(matcher.expected))
       end
 
       def output(message, color = nil, figure: nil, indent: 0)
+        return if synthetic?
         add_event(type: 'output', message: serialize(message), color: color, figure: figure, indent: indent)
       end
 
       def subject(subject)
+        return if synthetic?
         add_event(type: 'subject', value: serialize(subject))
       end
 

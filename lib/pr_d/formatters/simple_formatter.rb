@@ -5,27 +5,39 @@ module PrD
 
       INDENT = '│  '.freeze
 
-      def initialize(io: $stdout, serializers: {})
-        super(io: io, serializers: serializers)
+      def initialize(io: $stdout, serializers: {}, mode: :verbose)
+        super(io: io, serializers: serializers, mode: mode)
       end
 
       def context(message)
+        return if synthetic?
         output(message, :yellow)
       end
 
       def success_result(message)
+        if synthetic?
+          output("PASS: #{@current_test_title}", :green)
+          return
+        end
         output("✓ #{message}", :green)
       end
 
       def failure_result(message)
+        if synthetic?
+          output("FAIL: #{@current_test_title}", :red)
+          return
+        end
         output("✗ #{message}", :red)
       end
 
       def it(description = nil, &block)
+        @current_test_title = description.to_s
+        return if synthetic?
         title(description.to_s.capitalize)
       end
 
       def justification(justification)
+        return if synthetic?
         output("Justification: #{justification}", :white, indent: 1)
       end
 
@@ -33,24 +45,32 @@ module PrD
       end
 
       def subject(subject)
+        return if synthetic?
         title('Subject')
         output(subject, :white, indent: 1)
       end
 
       def pending(description = nil)
+        if synthetic?
+          output("PENDING: #{description || 'Pending test'}", :yellow)
+          return
+        end
         title(description || 'Pending test')
         output('⚠ This test is pending and has not been executed.', :yellow)
       end
 
       def expect(expectation)
+        return if synthetic?
         output("Expect: #{expectation}", :white, indent: 1)
       end
 
       def to
+        return if synthetic?
         output('To:', :white, indent: 1)
       end
 
       def not_to
+        return if synthetic?
         output('Not to:', :white, indent: 1)
       end
 
@@ -58,6 +78,7 @@ module PrD
       end
 
       def matcher(matcher, sources: nil)
+        return if synthetic?
         case matcher
         when Matchers::EqMatcher
           output("Be equal to: #{matcher.expected}", :white, indent: 2)

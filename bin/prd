@@ -16,6 +16,9 @@ OptionParser
     opts.on('-t', '--type TYPE', 'Specify the formatter type (simple, html, json, pdf)') do |type|
       options[:formatter] = type
     end
+    opts.on('-m', '--mode MODE', 'Specify output mode (verbose, synthetic)') do |mode|
+      options[:mode] = mode
+    end
   end
   .parse!
 
@@ -64,12 +67,16 @@ formatter_class = case options[:formatter]
                     raise "Unsupported formatter type: #{options[:formatter]}. Supported: simple, html, json, pdf"
                   end
 
+mode = options[:mode] || 'verbose'
+supported_modes = %w[verbose synthetic]
+raise "Unsupported mode: #{mode}. Supported: verbose, synthetic" unless supported_modes.include?(mode)
+
 serializers = {
   # Ferrum::Network::Exchange => (->(exchange) { exchange.url }),
   # PDF::Reader => (->(pdf) { pdf.pages.map(&:text).join("\n") })
 }
 
-formatter = formatter_class.new(io:, serializers:)
+formatter = formatter_class.new(io:, serializers:, mode: mode.to_sym)
 runtime = PrD::Runtime.new(formatter:, output_dir: options[:out], config_file: options[:config])
 runtime.run(tests)
 io.close if io != STDOUT

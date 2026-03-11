@@ -4,8 +4,8 @@ require 'base64'
 module PrD
   module Formatters
     class HtmlFormatter < Formatter
-      def initialize(io: $stdout, serializers: {})
-        super(io: io, serializers: serializers)
+      def initialize(io: $stdout, serializers: {}, mode: :verbose)
+        super(io: io, serializers: serializers, mode: mode)
         @io << <<~HTML
           <html>
             <head>
@@ -154,18 +154,28 @@ module PrD
       end
 
       def context(message)
+        return if synthetic?
         @io << "<h2 class=\"context\">#{escape(message)}</h2>"
       end
 
       def success_result(message)
+        if synthetic?
+          @io << "<div class='status success'>PASS</div>"
+          return
+        end
         @io << "<div class='status success'>✓ #{escape(message)}</div>"
       end
 
       def failure_result(message)
+        if synthetic?
+          @io << "<div class='status failure'>FAIL</div>"
+          return
+        end
         @io << "<div class='status failure'>✗ #{escape(message)}</div>"
       end
 
       def it(description = nil, &block)
+        @current_test_title = description.to_s
         @io << '<article class="test-card">'
         @io << "<h3 class=\"test-title\">#{escape(description)}</h3>"
       end
@@ -175,6 +185,7 @@ module PrD
       end
 
       def justification(justification)
+        return if synthetic?
         @io << "<p class=\"line\"><strong>Justification:</strong> #{escape(justification)}</p>"
       end
 
@@ -182,6 +193,7 @@ module PrD
       end
 
       def subject(subject)
+        return if synthetic?
         @io << '<div class="subject-block">'
         @io << "<p class=\"line\"><strong>Subject:</strong> #{escape(serialize(subject).to_s)}</p>"
         if image_file?(subject)
@@ -195,23 +207,34 @@ module PrD
       end
 
       def pending(description = nil)
+        if synthetic?
+          @io << '<article class="test-card">'
+          @io << "<h3 class=\"test-title\">#{escape(description || 'Pending test')}</h3>"
+          @io << "<div class='status pending'>PENDING</div>"
+          @io << '</article>'
+          return
+        end
         @io << "<div class='status pending'>⚠ #{escape(description || 'Pending test')}</div>"
         @io << '<p class="line muted">This test is pending and has not been executed.</p>'
       end
 
       def expect(expectation)
+        return if synthetic?
         @io << "<p class=\"line\"><strong>Expect:</strong> #{escape(serialize(expectation).to_s)}</p>"
       end
 
       def to
+        return if synthetic?
         @io << '<p class="line"><strong>To:</strong></p>'
       end
 
       def not_to
+        return if synthetic?
         @io << '<p class="line"><strong>Not to:</strong></p>'
       end
 
       def matcher(matcher, sources: nil)
+        return if synthetic?
         case matcher
         when Matchers::EqMatcher
           @io << "<p class=\"line\"><strong>Matcher:</strong> Be equal to #{escape(serialize(matcher.expected).to_s)}</p>"

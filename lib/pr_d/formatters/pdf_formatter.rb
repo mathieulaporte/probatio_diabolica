@@ -14,29 +14,40 @@ module PrD
         border: 'E5E7EB'
       }.freeze
 
-      def initialize(io: $stdout, serializers: {})
-        super(io: io, serializers: serializers)
+      def initialize(io: $stdout, serializers: {}, mode: :verbose)
+        super(io: io, serializers: serializers, mode: mode)
         @events = []
         @summary = { passed: 0, failed: 0 }
       end
 
       def title(message)
+        return if synthetic?
         add_event(:title, message:, level: @level)
       end
 
       def context(message)
+        return if synthetic?
         add_event(:context, message:, level: @level)
       end
 
       def success_result(message)
+        if synthetic?
+          add_event(:success, message: @current_test_title.to_s, level: @level)
+          return
+        end
         add_event(:success, message:, level: @level)
       end
 
       def failure_result(message)
+        if synthetic?
+          add_event(:failure, message: @current_test_title.to_s, level: @level)
+          return
+        end
         add_event(:failure, message:, level: @level)
       end
 
       def it(description = nil, &block)
+        @current_test_title = description.to_s
         add_event(:it, message: description.to_s, level: @level)
       end
 
@@ -44,6 +55,7 @@ module PrD
       end
 
       def justification(justification)
+        return if synthetic?
         add_event(:justification, message: "Justification: #{justification}", level: @level + 1)
       end
 
@@ -51,6 +63,7 @@ module PrD
       end
 
       def subject(subject)
+        return if synthetic?
         add_event(:subject, message: 'Subject', level: @level)
         if image_file?(subject)
           add_event(:detail, message: serialize(subject).to_s, level: @level + 1)
@@ -62,22 +75,27 @@ module PrD
 
       def pending(description = nil)
         add_event(:pending, message: (description || 'Pending test'), level: @level)
+        return if synthetic?
         add_event(:detail, message: 'This test is pending and has not been executed.', level: @level + 1)
       end
 
       def expect(expectation)
+        return if synthetic?
         add_event(:detail, message: "Expect: #{serialize(expectation)}", level: @level + 1)
       end
 
       def to
+        return if synthetic?
         add_event(:detail, message: 'To:', level: @level + 1)
       end
 
       def not_to
+        return if synthetic?
         add_event(:detail, message: 'Not to:', level: @level + 1)
       end
 
       def matcher(matcher, sources: nil)
+        return if synthetic?
         case matcher
         when Matchers::EqMatcher
           add_event(:matcher, message: "Be equal to: #{serialize(matcher.expected)}", level: @level + 2)
