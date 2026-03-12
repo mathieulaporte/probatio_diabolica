@@ -8,6 +8,8 @@ require 'pathname'
 ROOT = Pathname.new(__dir__).parent.expand_path
 VERSION_FILE = ROOT.join('lib/pr_d/version.rb')
 REL_VERSION_FILE = VERSION_FILE.relative_path_from(ROOT).to_s
+LOCK_FILE = ROOT.join('Gemfile.lock')
+REL_LOCK_FILE = LOCK_FILE.relative_path_from(ROOT).to_s
 
 class ReleaseError < StandardError; end
 
@@ -72,6 +74,21 @@ def update_version_file(new_version, dry_run:)
     VERSION_FILE.write(updated)
     puts "Updated #{REL_VERSION_FILE} -> #{new_version}"
   end
+end
+
+def refresh_lock_file(dry_run:)
+  if dry_run
+    puts "[dry-run] bundle lock --local"
+    return
+  end
+
+  _stdout, _stderr, status = run_command('bundle', 'lock', '--local', capture: true, allow_fail: true)
+  unless status.success?
+    warn 'bundle lock --local failed, fallback to bundle install.'
+    run_command('bundle', 'install')
+  end
+
+  puts "Updated #{REL_LOCK_FILE}"
 end
 
 def ensure_git_clean!(allow_dirty:)
@@ -171,7 +188,8 @@ def main
   end
 
   update_version_file(target, dry_run: options[:dry_run])
-  run_or_print(['git', 'add', REL_VERSION_FILE], dry_run: options[:dry_run])
+  refresh_lock_file(dry_run: options[:dry_run])
+  run_or_print(['git', 'add', REL_VERSION_FILE, REL_LOCK_FILE], dry_run: options[:dry_run])
   run_or_print(['git', 'commit', '-m', "chore(release): #{tag}"], dry_run: options[:dry_run])
   run_or_print(['git', 'tag', '-a', tag, '-m', "Release #{tag}"], dry_run: options[:dry_run])
 

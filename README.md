@@ -58,7 +58,7 @@ gem install ./probatio_diabolica-*.gem
 
 ## Release workflow
 
-Use the release helper to bump version, create commit/tag, and push:
+Use the release helper to bump version, refresh `Gemfile.lock`, create commit/tag, and push:
 
 ```bash
 # explicit version
