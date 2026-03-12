@@ -19,7 +19,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.1
+          ruby-version: .ruby-version
           bundler-cache: true
       - name: Run tests in synthetic mode
         run: bundle exec ruby bin/prd spec --mode synthetic
@@ -35,7 +35,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.1
+          ruby-version: .ruby-version
           bundler-cache: true
       - name: Run tests in verbose mode and generate HTML report
         run: |
@@ -60,7 +60,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.1
+          ruby-version: .ruby-version
           bundler-cache: true
       - name: Publish to RubyGems
         env:
