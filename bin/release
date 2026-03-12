@@ -1,0 +1,191 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'optparse'
+require 'open3'
+require 'pathname'
+
+ROOT = Pathname.new(__dir__).parent.expand_path
+VERSION_FILE = ROOT.join('lib/pr_d/version.rb')
+REL_VERSION_FILE = VERSION_FILE.relative_path_from(ROOT).to_s
+
+class ReleaseError < StandardError; end
+
+def run_command(*cmd, capture: false, allow_fail: false)
+  if capture
+    stdout, stderr, status = Open3.capture3(*cmd, chdir: ROOT.to_s)
+    return [stdout, stderr, status] if status.success? || allow_fail
+
+    raise ReleaseError, "Command failed: #{cmd.join(' ')}\n#{stderr.strip}"
+  end
+
+  ok = system(*cmd, chdir: ROOT.to_s)
+  return Process.last_status if ok || allow_fail
+
+  raise ReleaseError, "Command failed: #{cmd.join(' ')}"
+end
+
+def valid_version?(value)
+  /\A\d+\.\d+\.\d+\z/.match?(value)
+end
+
+def semver_components(version)
+  version.split('.').map(&:to_i)
+end
+
+def semver_greater?(candidate, current)
+  (semver_components(candidate) <=> semver_components(current)) == 1
+end
+
+def bump_version(current, level)
+  major, minor, patch = semver_components(current)
+
+  case level
+  when 'major'
+    "#{major + 1}.0.0"
+  when 'minor'
+    "#{major}.#{minor + 1}.0"
+  when 'patch'
+    "#{major}.#{minor}.#{patch + 1}"
+  else
+    raise ReleaseError, "Unsupported bump: #{level}. Expected: major, minor, patch."
+  end
+end
+
+def current_version
+  content = VERSION_FILE.read
+  match = content.match(/VERSION\s*=\s*"(\d+\.\d+\.\d+)"/)
+  raise ReleaseError, "Unable to read version from #{REL_VERSION_FILE}" unless match
+
+  match[1]
+end
+
+def update_version_file(new_version, dry_run:)
+  content = VERSION_FILE.read
+  updated = content.sub(/VERSION\s*=\s*"\d+\.\d+\.\d+"/, %(VERSION = "#{new_version}"))
+
+  raise ReleaseError, "Unable to update version in #{REL_VERSION_FILE}" if updated == content
+
+  if dry_run
+    puts "[dry-run] Update #{REL_VERSION_FILE} -> #{new_version}"
+  else
+    VERSION_FILE.write(updated)
+    puts "Updated #{REL_VERSION_FILE} -> #{new_version}"
+  end
+end
+
+def ensure_git_clean!(allow_dirty:)
+  return if allow_dirty
+
+  stdout, _stderr, _status = run_command('git', 'status', '--porcelain', capture: true)
+  raise ReleaseError, 'Git working tree is not clean. Commit/stash changes or use --allow-dirty.' unless stdout.strip.empty?
+end
+
+def current_branch
+  stdout, _stderr, _status = run_command('git', 'rev-parse', '--abbrev-ref', 'HEAD', capture: true)
+  branch = stdout.strip
+  raise ReleaseError, 'Detached HEAD is not supported for release.' if branch == 'HEAD'
+
+  branch
+end
+
+def ensure_tag_absent!(tag_name)
+  _stdout, _stderr, status = run_command('git', 'rev-parse', '-q', '--verify', "refs/tags/#{tag_name}", capture: true, allow_fail: true)
+  raise ReleaseError, "Tag #{tag_name} already exists." if status.success?
+end
+
+def run_or_print(cmd, dry_run:)
+  printable = cmd.map(&:to_s).join(' ')
+  if dry_run
+    puts "[dry-run] #{printable}"
+  else
+    run_command(*cmd)
+  end
+end
+
+def main
+  options = {
+    dry_run: false,
+    no_push: false,
+    skip_tests: false,
+    allow_dirty: false
+  }
+
+  parser = OptionParser.new do |opts|
+    opts.banner = 'Usage: bin/release [--version X.Y.Z | --bump major|minor|patch] [options]'
+    opts.on('-v', '--version VERSION', 'Target version (e.g. 0.2.0)') { |v| options[:version] = v }
+    opts.on('-b', '--bump LEVEL', 'Bump type: major, minor, patch') { |b| options[:bump] = b }
+    opts.on('--dry-run', 'Show actions without changing files/git') { options[:dry_run] = true }
+    opts.on('--no-push', 'Do not push branch/tag to origin') { options[:no_push] = true }
+    opts.on('--skip-tests', 'Skip test command before release') { options[:skip_tests] = true }
+    opts.on('--allow-dirty', 'Allow running with uncommitted git changes') { options[:allow_dirty] = true }
+    opts.on('-h', '--help', 'Show help') do
+      puts opts
+      exit(0)
+    end
+  end
+
+  parser.parse!
+
+  if ARGV.any?
+    raise ReleaseError, "Unexpected arguments: #{ARGV.join(' ')}"
+  end
+
+  env_version = ENV['VERSION']
+  env_bump = ENV['BUMP']
+  chosen_version = options[:version] || env_version
+  chosen_bump = options[:bump] || env_bump
+
+  if chosen_version && chosen_bump
+    raise ReleaseError, 'Use either --version/VERSION or --bump/BUMP, not both.'
+  end
+
+  if chosen_version.nil? && chosen_bump.nil?
+    raise ReleaseError, 'Missing release target. Use --version X.Y.Z (or VERSION=...) or --bump patch|minor|major.'
+  end
+
+  current = current_version
+  target =
+    if chosen_version
+      raise ReleaseError, "Invalid version '#{chosen_version}'. Expected format X.Y.Z." unless valid_version?(chosen_version)
+      chosen_version
+    else
+      bump_version(current, chosen_bump)
+    end
+
+  raise ReleaseError, "Target version #{target} must be greater than current #{current}." unless semver_greater?(target, current)
+
+  tag = "v#{target}"
+  branch = current_branch
+
+  ensure_git_clean!(allow_dirty: options[:allow_dirty])
+  ensure_tag_absent!(tag)
+
+  puts "Current version: #{current}"
+  puts "Next version: #{target}"
+  puts "Branch: #{branch}"
+  puts "Tag: #{tag}"
+
+  unless options[:skip_tests]
+    run_or_print(['bundle', 'exec', 'ruby', 'bin/prd', 'spec', '--mode', 'synthetic'], dry_run: options[:dry_run])
+  end
+
+  update_version_file(target, dry_run: options[:dry_run])
+  run_or_print(['git', 'add', REL_VERSION_FILE], dry_run: options[:dry_run])
+  run_or_print(['git', 'commit', '-m', "chore(release): #{tag}"], dry_run: options[:dry_run])
+  run_or_print(['git', 'tag', '-a', tag, '-m', "Release #{tag}"], dry_run: options[:dry_run])
+
+  unless options[:no_push]
+    run_or_print(['git', 'push', 'origin', branch], dry_run: options[:dry_run])
+    run_or_print(['git', 'push', 'origin', tag], dry_run: options[:dry_run])
+  end
+
+  puts options[:dry_run] ? 'Dry run completed.' : "Release #{tag} completed."
+end
+
+begin
+  main
+rescue ReleaseError => e
+  warn "Release failed: #{e.message}"
+  exit(1)
+end
