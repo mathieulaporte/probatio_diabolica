@@ -1,36 +1,78 @@
-name: Ruby Gem
+name: Ruby Gem CI
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches:
+      - "**"
+    tags:
+      - "v*"
 
 jobs:
-  build:
-    name: Build + Publish
+  test-branches:
+    name: Tests (synthetic)
+    if: github.ref_type == 'branch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
-
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Ruby 2.6
-    # To automatically get bug fixes and new Ruby versions for ruby/setup-ruby,
-    # change this to (see https://github.com/ruby/setup-ruby#versioning):
-    # uses: ruby/setup-ruby@v1
-      uses: ruby/setup-ruby@55283cc23133118229fd3f97f9336ee23a179fcf # v1.146.0
-      with:
-        ruby-version: 3.1.x
+      - uses: actions/checkout@v4
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.1
+          bundler-cache: true
+      - name: Run tests in synthetic mode
+        run: bundle exec ruby bin/prd spec --mode synthetic
 
-    - name: Publish to RubyGems
-      run: |
-        mkdir -p $HOME/.gem
-        touch $HOME/.gem/credentials
-        chmod 0600 $HOME/.gem/credentials
-        printf -- "---\n:rubygems_api_key: ${GEM_HOST_API_KEY}\n" > $HOME/.gem/credentials
-        gem build *.gemspec
-        gem push *.gem
-      env:
-        GEM_HOST_API_KEY: "${{secrets.RUBYGEMS_AUTH_TOKEN}}"
+  test-release:
+    name: Tests (verbose + HTML report)
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.1
+          bundler-cache: true
+      - name: Run tests in verbose mode and generate HTML report
+        run: |
+          mkdir -p tmp/ci-report
+          bundle exec ruby bin/prd spec --mode verbose --type html --out tmp/ci-report
+      - name: Upload HTML report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prd-html-report-${{ github.ref_name }}
+          path: tmp/ci-report/report.html
+          if-no-files-found: error
+
+  publish-gem:
+    name: Publish RubyGems
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.1
+          bundler-cache: true
+      - name: Publish to RubyGems
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_AUTH_TOKEN }}
+        run: |
+          mkdir -p "$HOME/.gem"
+          chmod 0700 "$HOME/.gem"
+          printf -- "---\n:rubygems_api_key: %s\n" "$GEM_HOST_API_KEY" > "$HOME/.gem/credentials"
+          chmod 0600 "$HOME/.gem/credentials"
+
+          gem build probatio_diabolica.gemspec
+          VERSION="$(ruby -r./lib/pr_d/version -e 'print PrD::VERSION')"
+          GEM_FILE="probatio_diabolica-${VERSION}.gem"
+          test -f "$GEM_FILE"
+          gem push "$GEM_FILE"
