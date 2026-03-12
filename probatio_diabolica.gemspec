@@ -10,13 +10,13 @@ Gem::Specification.new do |spec|
 
   spec.summary       = "A Ruby DSL testing framework with classic and LLM-powered matchers."
   spec.description   = "Probatio Diabolica runs custom *_spec.rb files with a DSL inspired by RSpec and supports text/image/PDF reporting."
-  spec.homepage      = "https://github.com/syadem/probatio_diabolica"
+  spec.homepage      = "https://github.com/mathieulaporte/probatio_diabolica"
   spec.license       = "MIT"
   spec.required_ruby_version = ">= 3.1"
 
   spec.metadata = {
-    "source_code_uri" => "https://github.com/syadem/probatio_diabolica",
-    "changelog_uri" => "https://github.com/syadem/probatio_diabolica/releases"
+    "source_code_uri" => "https://github.com/mathieulaporte/probatio_diabolica",
+    "changelog_uri" => "https://github.com/mathieulaporte/probatio_diabolica/releases"
   }
 
   spec.files = Dir[
