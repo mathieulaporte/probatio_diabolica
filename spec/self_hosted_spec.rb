@@ -125,7 +125,7 @@ describe 'PrD self-hosted reliability' do
 
       stdout, stderr, status = Open3.capture3("bundle exec ruby bin/prd #{spec_file.path} --mode synthetic")
 
-      expect(status.success?).to(be(true))
+      expect(status.success?).to(be(false))
       expect(stderr).to(eq(''))
       expect(stdout).to(includes('PASS: passes'))
       expect(stdout).to(includes('FAIL: fails'))

@@ -79,4 +79,6 @@ serializers = {
 formatter = formatter_class.new(io:, serializers:, mode: mode.to_sym)
 runtime = PrD::Runtime.new(formatter:, output_dir: options[:out], config_file: options[:config])
 runtime.run(tests)
+exit_status = runtime.success? ? 0 : 1
 io.close if io != STDOUT
+exit(exit_status)

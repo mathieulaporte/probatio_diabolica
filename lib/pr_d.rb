@@ -69,6 +69,8 @@ module PrD
       end
     end
 
+    attr_reader :passed_count, :failed_count
+
     def describe(description, model: nil, &block)
       context(description, model: model, &block)
       @formatter.result(@passed_count, @failed_count)
@@ -183,6 +185,10 @@ module PrD
     ensure
       close_chrome_browser if respond_to?(:close_chrome_browser, true)
       @formatter.flush
+    end
+
+    def success?
+      @failed_count.zero?
     end
 
     private
