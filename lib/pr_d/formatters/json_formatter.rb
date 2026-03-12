@@ -52,6 +52,11 @@ module PrD
         add_event(type: 'justification', message: justification)
       end
 
+      def let(value)
+        return if synthetic?
+        add_event(type: 'let', value: serialize(value))
+      end
+
       def pending(description = nil)
         if synthetic?
           add_event(type: 'test_result', title: description || 'Pending test', status: 'PENDING')
@@ -104,7 +109,8 @@ module PrD
       private
 
       def add_event(type:, **payload)
-        @events << payload.merge(type:, level: @level)
+        event = payload.merge(type:, level: @level)
+        @events << normalize_for_json(event)
       end
 
       def serialize(value)
@@ -188,6 +194,27 @@ module PrD
         else
           'application/octet-stream'
         end
+      end
+
+      def normalize_for_json(value)
+        case value
+        when String
+          value.encode('UTF-8', invalid: :replace, undef: :replace, replace: '?')
+        when Array
+          value.map { |item| normalize_for_json(item) }
+        when Hash
+          value.each_with_object({}) do |(key, item), normalized|
+            normalized[normalize_hash_key(key)] = normalize_for_json(item)
+          end
+        else
+          value
+        end
+      end
+
+      def normalize_hash_key(key)
+        return key.encode('UTF-8', invalid: :replace, undef: :replace, replace: '?') if key.is_a?(String)
+
+        key
       end
     end
   end

@@ -18,6 +18,8 @@ module PrD
         super(io: io, serializers: serializers, mode: mode)
         @events = []
         @summary = { passed: 0, failed: 0 }
+        @index_entries = []
+        @anchor_counters = Hash.new(0)
       end
 
       def title(message)
@@ -26,8 +28,13 @@ module PrD
       end
 
       def context(message)
-        return if synthetic?
-        add_event(:context, message:, level: @level)
+        anchor_id = next_anchor_id('ctx')
+        add_index_entry(type: :context, label: message, level: @level, anchor_id:)
+        if synthetic?
+          add_event(:anchor_marker, message: '', level: @level, anchor_id:)
+          return
+        end
+        add_event(:context, message:, level: @level, anchor_id:)
       end
 
       def success_result(message)
@@ -48,7 +55,9 @@ module PrD
 
       def it(description = nil, &block)
         @current_test_title = description.to_s
-        add_event(:it, message: description.to_s, level: @level)
+        anchor_id = next_anchor_id('test')
+        add_index_entry(type: :test, label: description.to_s, level: @level, anchor_id:)
+        add_event(:it, message: description.to_s, level: @level, anchor_id:)
       end
 
       def end_it(description = nil, &block)
@@ -74,7 +83,10 @@ module PrD
       end
 
       def pending(description = nil)
-        add_event(:pending, message: (description || 'Pending test'), level: @level)
+        pending_label = description || 'Pending test'
+        anchor_id = next_anchor_id('pending')
+        add_index_entry(type: :pending, label: pending_label, level: @level, anchor_id:)
+        add_event(:pending, message: pending_label, level: @level, anchor_id:)
         return if synthetic?
         add_event(:detail, message: 'This test is pending and has not been executed.', level: @level + 1)
       end
@@ -122,6 +134,7 @@ module PrD
       def flush
         document = Prawn::Document.new(page_size: 'A4', margin: 42)
         render_header(document)
+        render_index(document)
         render_events(document)
         render_summary(document)
 
@@ -132,8 +145,22 @@ module PrD
 
       private
 
-      def add_event(type, message:, level:)
-        @events << { type:, message: safe_pdf_text(message.to_s), level: [level, 0].max }
+      def add_event(type, message:, level:, anchor_id: nil)
+        @events << {
+          type:,
+          message: safe_pdf_text(message.to_s),
+          level: [level, 0].max,
+          anchor_id:
+        }
+      end
+
+      def add_index_entry(type:, label:, level:, anchor_id:)
+        @index_entries << {
+          type:,
+          label: safe_pdf_text(label.to_s),
+          level: [level, 0].max,
+          anchor_id:
+        }
       end
 
       def safe_pdf_text(text)
@@ -153,8 +180,40 @@ module PrD
         document.move_down 10
       end
 
+      def render_index(document)
+        return if @index_entries.empty?
+
+        document.fill_color COLORS[:title]
+        document.text 'Index', size: 14, style: :bold
+        document.move_down 4
+
+        @index_entries.each do |entry|
+          document.indent(entry[:level] * 12) do
+            document.formatted_text(
+              [
+                {
+                  text: "- #{index_label(entry)}",
+                  anchor: entry[:anchor_id],
+                  styles: [:underline],
+                  color: COLORS[:context]
+                }
+              ],
+              size: 10
+            )
+          end
+          document.move_down 1
+        end
+
+        document.move_down 8
+        document.stroke_color COLORS[:border]
+        document.stroke_horizontal_rule
+        document.stroke_color '000000'
+        document.move_down 8
+      end
+
       def render_events(document)
         @events.each do |event|
+          register_anchor(document, event)
           case event[:type]
           when :title, :context
             styled_line(document, event[:message], level: event[:level], size: 14, style: :bold, color: COLORS[:context], spacing: 6)
@@ -172,11 +231,20 @@ module PrD
             styled_line(document, event[:message], level: event[:level], size: 10, color: COLORS[:text])
           when :subject_image
             render_image(document, event[:message], level: event[:level])
+          when :anchor_marker
+            next
           when :result
             document.move_down 8
             styled_line(document, event[:message], level: event[:level], size: 11, style: :bold, color: COLORS[:title])
           end
         end
+      end
+
+      def register_anchor(document, event)
+        anchor_id = event[:anchor_id]
+        return if anchor_id.nil?
+
+        document.add_dest(anchor_id, document.dest_xyz(0, document.cursor))
       end
 
       def render_summary(document)
@@ -214,6 +282,22 @@ module PrD
           )
         end
         document.move_down 2
+      end
+
+      def index_label(entry)
+        prefix =
+          case entry[:type]
+          when :context then 'Context'
+          when :pending then 'Pending'
+          else 'Test'
+          end
+
+        "#{prefix}: #{entry[:label]}"
+      end
+
+      def next_anchor_id(prefix)
+        @anchor_counters[prefix] += 1
+        "#{prefix}-#{@anchor_counters[prefix]}"
       end
 
       def image_file?(value)

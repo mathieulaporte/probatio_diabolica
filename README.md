@@ -107,39 +107,63 @@ Without valid configuration, tests using `satisfy(...)` will fail.
 
 ## Running tests
 
-Command:
+CLI command:
 
 ```bash
 prd <file_or_directory> [options]
 ```
 
-From source checkout (without gem install), use:
+From source checkout (without gem install), this is always valid:
 
 ```bash
-bundle exec prd <file_or_directory> [options]
+bundle exec ruby bin/prd <file_or_directory> [options]
 ```
 
-Supported options:
+Options:
 
-- `-o, --out DIR` writes output to `DIR/report.qd` (otherwise stdout)
 - `-c, --config FILE` Ruby config file to require
-- `-t, --type TYPE` formatter type (`simple` by default; supports `simple`, `html`, `json`, `pdf`)
-- `-m, --mode MODE` output verbosity mode (`verbose` by default; supports `verbose`, `synthetic`)
+- `-t, --type TYPE` formatter type(s), default: `simple`
+  - supported: `simple`, `html`, `json`, `pdf`
+  - can be repeated (`-t html -t json`) or comma-separated (`-t html,json,pdf`)
+- `-o, --out PATH` output base path (directory or file-like base name)
+- `-m, --mode MODE` output mode, default: `verbose`
+  - supported: `verbose`, `synthetic`
+
+Output rules (`--out`):
+
+- No `--out`:
+  - one formatter (`simple`, `html`, or `json`): output goes to `stdout`
+  - `pdf`: fails (`PDF formatter requires --out`)
+  - multiple formatters: fails (`Multiple formatter types require --out`)
+- With `--out PATH`:
+  - if `PATH` exists as a directory, or ends with `/`, reports are written as `PATH/report.<ext>`
+  - otherwise, `PATH` is treated as a base name and reports are written as `PATH.<ext>`
+  - if `PATH` ends with one known extension (`.txt`, `.html`, `.json`, `.pdf`), that extension is stripped before generating outputs
+
+Formatter/file extension mapping:
+
+- `simple` -> `.txt`
+- `html` -> `.html`
+- `json` -> `.json`
+- `pdf` -> `.pdf`
 
 Examples:
 
 ```bash
 # single file
-bundle exec prd examples/basics_spec.rb
+bundle exec ruby bin/prd examples/basics_spec.rb
 
 # all *_spec.rb files in a directory
-bundle exec prd examples
+bundle exec ruby bin/prd examples
 
-# HTML report
-bundle exec prd examples/image_spec.rb -t html -o ./tmp
+# HTML report in an existing directory (creates ./tmp/report.html)
+bundle exec ruby bin/prd examples/image_spec.rb -t html -o ./tmp/
+
+# multiple reports from one run with shared base name
+bundle exec ruby bin/prd examples/basics_spec.rb -t html,json,pdf -o ./tmp/my_report
 
 # compact synthetic output on console
-bundle exec prd examples/basics_spec.rb --mode synthetic
+bundle exec ruby bin/prd examples/basics_spec.rb --mode synthetic
 ```
 
 ## Available DSL
@@ -232,7 +256,13 @@ The runtime keeps a model stack (`it` can temporarily override the parent `conte
 
 - `PrD::Formatters::SimpleFormatter` (text console output)
 - `PrD::Formatters::HtmlFormatter` (simple HTML output)
-- `PrD::Formatters::JsonFormatter` exists in code but is not currently exposed by `bin/prd`
+- `PrD::Formatters::JsonFormatter` (structured JSON output)
+- `PrD::Formatters::PdfFormatter` (PDF report output)
+
+In CLI usage:
+
+- selecting one formatter writes one output stream/file
+- selecting multiple formatters runs tests once and writes one file per formatter
 
 ### Subject rendering policy (best effort)
 
@@ -267,5 +297,5 @@ The goal is to preserve readability and report size while surfacing the richest 
 ## Current limitations
 
 - Work in progress, API may change.
-- Strong dependency on an LLM provider for `satisfy`.
-- `-o` output is always written to a file named `report.qd`.
+- `satisfy(...)` requires a configured LLM provider and network access.
+- PDF and multi-format output require `--out`.

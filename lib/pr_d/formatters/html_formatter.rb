@@ -6,14 +6,148 @@ module PrD
     class HtmlFormatter < Formatter
       def initialize(io: $stdout, serializers: {}, mode: :verbose)
         super(io: io, serializers: serializers, mode: mode)
-        @io << <<~HTML
+        @content = +''
+        @index_entries = []
+        @anchor_counters = Hash.new(0)
+      end
+
+      def context(message)
+        anchor_id = next_anchor_id('ctx')
+        add_index_entry(type: :context, label: message, level: @level, anchor_id:)
+        @content << "<h2 class=\"context\" id=\"#{anchor_id}\">#{escape(message)}</h2>"
+      end
+
+      def success_result(message)
+        if synthetic?
+          @content << "<div class='status success'>PASS</div>"
+          return
+        end
+        @content << "<div class='status success'>✓ #{escape(message)}</div>"
+      end
+
+      def failure_result(message)
+        if synthetic?
+          @content << "<div class='status failure'>FAIL</div>"
+          return
+        end
+        @content << "<div class='status failure'>✗ #{escape(message)}</div>"
+      end
+
+      def it(description = nil, &block)
+        @current_test_title = description.to_s
+        anchor_id = next_anchor_id('test')
+        add_index_entry(type: :test, label: description.to_s, level: @level, anchor_id:)
+        @content << "<article class=\"test-card\" id=\"#{anchor_id}\">"
+        @content << "<h3 class=\"test-title\">#{escape(description)}</h3>"
+      end
+
+      def end_it(description = nil, &block)
+        @content << '</article>'
+      end
+
+      def justification(justification)
+        return if synthetic?
+        @content << "<p class=\"line\"><strong>Justification:</strong> #{escape(justification)}</p>"
+      end
+
+      def let(value)
+      end
+
+      def subject(subject)
+        return if synthetic?
+        @content << '<div class="subject-block">'
+        @content << "<p class=\"line\"><strong>Subject:</strong> #{escape(serialize(subject).to_s)}</p>"
+        if image_file?(subject)
+          @content << "<img src=\"#{image_data_uri(subject.path)}\" alt=\"Subject image\" class=\"subject-image\" />"
+        elsif pdf_file?(subject)
+          @content << "<embed src=\"#{pdf_data_uri(subject.path)}\" type=\"application/pdf\" class=\"subject-pdf\" />"
+        elsif pdf_reader?(subject)
+          @content << "<embed src=\"#{pdf_reader_data_uri(subject)}\" type=\"application/pdf\" class=\"subject-pdf\" />"
+        end
+        @content << '</div>'
+      end
+
+      def pending(description = nil)
+        pending_label = description || 'Pending test'
+        anchor_id = next_anchor_id('pending')
+        add_index_entry(type: :pending, label: pending_label, level: @level, anchor_id:)
+
+        @content << "<article class=\"test-card\" id=\"#{anchor_id}\">"
+        @content << "<h3 class=\"test-title\">#{escape(pending_label)}</h3>"
+        if synthetic?
+          @content << "<div class='status pending'>PENDING</div>"
+        else
+          @content << "<div class='status pending'>⚠ #{escape(pending_label)}</div>"
+          @content << '<p class="line muted">This test is pending and has not been executed.</p>'
+        end
+        @content << '</article>'
+      end
+
+      def expect(expectation)
+        return if synthetic?
+        @content << "<p class=\"line\"><strong>Expect:</strong> #{escape(serialize(expectation).to_s)}</p>"
+      end
+
+      def to
+        return if synthetic?
+        @content << '<p class="line"><strong>To:</strong></p>'
+      end
+
+      def not_to
+        return if synthetic?
+        @content << '<p class="line"><strong>Not to:</strong></p>'
+      end
+
+      def matcher(matcher, sources: nil)
+        return if synthetic?
+        case matcher
+        when Matchers::EqMatcher
+          @content << "<p class=\"line\"><strong>Matcher:</strong> Be equal to #{escape(serialize(matcher.expected).to_s)}</p>"
+        when Matchers::BeMatcher
+          @content << "<p class=\"line\"><strong>Matcher:</strong> Be the same object as #{escape(serialize(matcher.expected).to_s)}</p>"
+        when Matchers::IncludesMatcher
+          @content << "<p class=\"line\"><strong>Matcher:</strong> Include #{escape(serialize(matcher.expected).to_s)}</p>"
+        when Matchers::HaveMatcher
+          @content << "<p class=\"line\"><strong>Matcher:</strong> Have #{escape(serialize(matcher.expected).to_s)}</p>"
+        when Matchers::LlmMatcher
+          @content << "<p class=\"line\"><strong>Matcher:</strong> Satisfy condition #{escape(serialize(matcher.expected).to_s)}</p>"
+        when Matchers::AllMatcher
+          if sources
+            code_line = matcher.expected.source_location.last.to_i
+            code = sources.lines[code_line - 1]
+            @content << "<p class=\"line\"><strong>Matcher:</strong> All match condition #{escape(code.strip)}</p>"
+          else
+            @content << '<p class="line"><strong>Matcher:</strong> All match the given condition</p>'
+          end
+        else
+          @content << "<p class=\"line\"><strong>Matcher:</strong> #{escape(matcher.class.to_s)}</p>"
+        end
+      end
+
+      def result(passed_count, failed_count)
+        summary_class = failed_count > 0 ? 'failure' : 'success'
+        @content << "<p class='result #{summary_class}'><strong>#{passed_count} passed, #{failed_count} failed</strong></p>"
+      end
+
+      def flush
+        @io << document_opening
+        @io << render_index
+        @io << @content
+        @io << '</main></body></html>'
+        super
+      end
+
+      private
+
+      def document_opening
+        <<~HTML
           <html>
             <head>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
               <link rel="preconnect" href="https://fonts.googleapis.com">
               <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-              <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
+              <link href="https://fonts.googleapis.com/css2?family=Saira:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
               <style>
                 :root {
                   --bg: #f3f4f6;
@@ -48,8 +182,42 @@ module PrD
                   border-radius: 18px;
                 }
 
+                .report-index {
+                  background: var(--paper);
+                  border: 1px solid var(--line);
+                  border-radius: 14px;
+                  padding: 0.9rem 1rem;
+                  margin-bottom: 1rem;
+                }
+
+                .index-title {
+                  margin: 0 0 0.6rem;
+                  font-family: "Saira", Georgia, serif;
+                  font-size: 1.15rem;
+                }
+
+                .index-list {
+                  margin: 0;
+                  padding: 0;
+                  list-style: none;
+                }
+
+                .index-item {
+                  margin: 0.2rem 0;
+                  padding-left: calc(var(--index-level, 0) * 1rem);
+                }
+
+                .index-item a {
+                  color: var(--accent);
+                  text-decoration: none;
+                }
+
+                .index-item a:hover {
+                  text-decoration: underline;
+                }
+
                 .context {
-                  font-family: "Fraunces", Georgia, serif;
+                  font-family: "Saira", Georgia, serif;
                   font-size: clamp(1.4rem, 2.8vw, 2rem);
                   margin: 1.3rem 0 1rem;
                   padding-bottom: 0.45rem;
@@ -67,7 +235,7 @@ module PrD
 
                 .test-title {
                   margin: 0 0 0.75rem;
-                  font-family: "Fraunces", Georgia, serif;
+                  font-family: "Saira", Georgia, serif;
                   font-size: 1.2rem;
                 }
 
@@ -153,126 +321,54 @@ module PrD
         HTML
       end
 
-      def context(message)
-        return if synthetic?
-        @io << "<h2 class=\"context\">#{escape(message)}</h2>"
+      def render_index
+        return '' if @index_entries.empty?
+
+        index_items = @index_entries.map do |entry|
+          "<li class=\"index-item\" style=\"--index-level: #{entry[:level]};\"><a href=\"##{entry[:anchor_id]}\">#{escape(index_label(entry))}</a></li>"
+        end.join
+
+        <<~HTML
+          <nav class="report-index" aria-label="Report index">
+            <h2 class="index-title">Index</h2>
+            <ul class="index-list">
+              #{index_items}
+            </ul>
+          </nav>
+        HTML
       end
 
-      def success_result(message)
-        if synthetic?
-          @io << "<div class='status success'>PASS</div>"
-          return
-        end
-        @io << "<div class='status success'>✓ #{escape(message)}</div>"
-      end
-
-      def failure_result(message)
-        if synthetic?
-          @io << "<div class='status failure'>FAIL</div>"
-          return
-        end
-        @io << "<div class='status failure'>✗ #{escape(message)}</div>"
-      end
-
-      def it(description = nil, &block)
-        @current_test_title = description.to_s
-        @io << '<article class="test-card">'
-        @io << "<h3 class=\"test-title\">#{escape(description)}</h3>"
-      end
-
-      def end_it(description = nil, &block)
-        @io << '</article>'
-      end
-
-      def justification(justification)
-        return if synthetic?
-        @io << "<p class=\"line\"><strong>Justification:</strong> #{escape(justification)}</p>"
-      end
-
-      def let(value)
-      end
-
-      def subject(subject)
-        return if synthetic?
-        @io << '<div class="subject-block">'
-        @io << "<p class=\"line\"><strong>Subject:</strong> #{escape(serialize(subject).to_s)}</p>"
-        if image_file?(subject)
-          @io << "<img src=\"#{image_data_uri(subject.path)}\" alt=\"Subject image\" class=\"subject-image\" />"
-        elsif pdf_file?(subject)
-          @io << "<embed src=\"#{pdf_data_uri(subject.path)}\" type=\"application/pdf\" class=\"subject-pdf\" />"
-        elsif pdf_reader?(subject)
-          @io << "<embed src=\"#{pdf_reader_data_uri(subject)}\" type=\"application/pdf\" class=\"subject-pdf\" />"
-        end
-        @io << '</div>'
-      end
-
-      def pending(description = nil)
-        if synthetic?
-          @io << '<article class="test-card">'
-          @io << "<h3 class=\"test-title\">#{escape(description || 'Pending test')}</h3>"
-          @io << "<div class='status pending'>PENDING</div>"
-          @io << '</article>'
-          return
-        end
-        @io << "<div class='status pending'>⚠ #{escape(description || 'Pending test')}</div>"
-        @io << '<p class="line muted">This test is pending and has not been executed.</p>'
-      end
-
-      def expect(expectation)
-        return if synthetic?
-        @io << "<p class=\"line\"><strong>Expect:</strong> #{escape(serialize(expectation).to_s)}</p>"
-      end
-
-      def to
-        return if synthetic?
-        @io << '<p class="line"><strong>To:</strong></p>'
-      end
-
-      def not_to
-        return if synthetic?
-        @io << '<p class="line"><strong>Not to:</strong></p>'
-      end
-
-      def matcher(matcher, sources: nil)
-        return if synthetic?
-        case matcher
-        when Matchers::EqMatcher
-          @io << "<p class=\"line\"><strong>Matcher:</strong> Be equal to #{escape(serialize(matcher.expected).to_s)}</p>"
-        when Matchers::BeMatcher
-          @io << "<p class=\"line\"><strong>Matcher:</strong> Be the same object as #{escape(serialize(matcher.expected).to_s)}</p>"
-        when Matchers::IncludesMatcher
-          @io << "<p class=\"line\"><strong>Matcher:</strong> Include #{escape(serialize(matcher.expected).to_s)}</p>"
-        when Matchers::HaveMatcher
-          @io << "<p class=\"line\"><strong>Matcher:</strong> Have #{escape(serialize(matcher.expected).to_s)}</p>"
-        when Matchers::LlmMatcher
-          @io << "<p class=\"line\"><strong>Matcher:</strong> Satisfy condition #{escape(serialize(matcher.expected).to_s)}</p>"
-        when Matchers::AllMatcher
-          if sources
-            code_line = matcher.expected.source_location.last.to_i
-            code = sources.lines[code_line - 1]
-            @io << "<p class=\"line\"><strong>Matcher:</strong> All match condition #{escape(code.strip)}</p>"
-          else
-            @io << '<p class="line"><strong>Matcher:</strong> All match the given condition</p>'
+      def index_label(entry)
+        prefix =
+          case entry[:type]
+          when :context then 'Context'
+          when :pending then 'Pending'
+          else 'Test'
           end
-        else
-          @io << "<p class=\"line\"><strong>Matcher:</strong> #{escape(matcher.class.to_s)}</p>"
-        end
+
+        "#{prefix}: #{entry[:label]}"
       end
 
-      def result(passed_count, failed_count)
-        summary_class = failed_count > 0 ? 'failure' : 'success'
-        @io << "<p class='result #{summary_class}'><strong>#{passed_count} passed, #{failed_count} failed</strong></p>"
+      def add_index_entry(type:, label:, level:, anchor_id:)
+        @index_entries << {
+          type:,
+          label: normalize_text(label),
+          level: [level, 0].max,
+          anchor_id:
+        }
       end
 
-      def flush
-        @io << '</main></body></html>'
-        super
+      def next_anchor_id(prefix)
+        @anchor_counters[prefix] += 1
+        "#{prefix}-#{@anchor_counters[prefix]}"
       end
-
-      private
 
       def escape(message)
-        CGI.escape_html(message.to_s)
+        CGI.escape_html(normalize_text(message))
+      end
+
+      def normalize_text(value)
+        value.to_s.encode('UTF-8', invalid: :replace, undef: :replace, replace: '?')
       end
 
       def image_file?(value)

@@ -6,15 +6,93 @@ rescue LoadError
   require_relative '../lib/pr_d'
 end
 require 'optparse'
+require 'fileutils'
 
-options = {}
+FORMATTERS = {
+  'simple' => { klass: PrD::Formatters::SimpleFormatter, extension: '.txt', binary: false },
+  'html' => { klass: PrD::Formatters::HtmlFormatter, extension: '.html', binary: false },
+  'json' => { klass: PrD::Formatters::JsonFormatter, extension: '.json', binary: false },
+  'pdf' => { klass: PrD::Formatters::PdfFormatter, extension: '.pdf', binary: true }
+}.freeze
+
+SUPPORTED_FORMATTERS = FORMATTERS.keys.freeze
+SUPPORTED_MODES = %w[verbose synthetic].freeze
+DEFAULT_REPORT_BASENAME = 'report'.freeze
+
+class CompositeFormatter
+  def initialize(formatters)
+    @formatters = formatters
+  end
+
+  def method_missing(name, *args, &block)
+    handled = false
+    @formatters.each do |formatter|
+      next unless formatter.respond_to?(name)
+
+      formatter.public_send(name, *args, &block)
+      handled = true
+    end
+
+    return if handled
+
+    super
+  end
+
+  def respond_to_missing?(name, include_private = false)
+    @formatters.any? { |formatter| formatter.respond_to?(name, include_private) } || super
+  end
+end
+
+def parse_formatter_types(raw_values)
+  types = Array(raw_values)
+            .flat_map { |value| value.to_s.split(',') }
+            .map(&:strip)
+            .reject(&:empty?)
+  types = ['simple'] if types.empty?
+
+  unknown_types = types - SUPPORTED_FORMATTERS
+  unless unknown_types.empty?
+    supported = SUPPORTED_FORMATTERS.join(', ')
+    raise "Unsupported formatter type: #{unknown_types.first}. Supported: #{supported}"
+  end
+
+  types.uniq
+end
+
+def normalize_mode(raw_mode)
+  mode = raw_mode || 'verbose'
+  supported = SUPPORTED_MODES.join(', ')
+  raise "Unsupported mode: #{mode}. Supported: #{supported}" unless SUPPORTED_MODES.include?(mode)
+
+  mode
+end
+
+def directory_like_path?(path)
+  path.end_with?(File::SEPARATOR) || Dir.exist?(path)
+end
+
+def output_base_path(out_path)
+  return nil if out_path.nil?
+
+  if directory_like_path?(out_path)
+    File.join(out_path, DEFAULT_REPORT_BASENAME)
+  else
+    known_extensions = FORMATTERS.values.map { |config| config[:extension].downcase }
+    ext = File.extname(out_path).downcase
+    return out_path[...-ext.length] if known_extensions.include?(ext)
+
+    out_path
+  end
+end
+
+options = { formatters: [] }
 OptionParser
   .new do |opts|
     opts.banner = 'Usage: prd [options] FILE_OR_DIR'
-    opts.on('-o', '--out DIR', 'Specify the output directory') { |dir| options[:out] = dir }
+    opts.on('-o', '--out PATH', 'Specify output base path (directory or path/name)') { |path| options[:out] = path }
     opts.on('-c', '--config FILE', 'Specify the config file') { |file| options[:config] = file }
-    opts.on('-t', '--type TYPE', 'Specify the formatter type (simple, html, json, pdf)') do |type|
-      options[:formatter] = type
+    opts.on('-t', '--type TYPE', 'Specify formatter type(s): simple, html, json, pdf (repeat or comma-separated)') do |type|
+      options[:formatters] << type
     end
     opts.on('-m', '--mode MODE', 'Specify output mode (verbose, synthetic)') do |mode|
       options[:mode] = mode
@@ -36,49 +114,50 @@ tests =
     [File.read(input_path)]
   end
 
-io =
-  if options[:out].nil?
-    raise 'PDF formatter requires --out to write a binary report file.' if options[:formatter] == 'pdf'
-    STDOUT
-  else
-    Dir.mkdir(options[:out]) unless Dir.exist?(options[:out])
-    report_filename = case options[:formatter]
-                      when 'html'
-                        'report.html'
-                      when 'pdf'
-                        'report.pdf'
-                      else
-                        'report.qd'
-                      end
-    mode = options[:formatter] == 'pdf' ? 'wb' : 'w'
-    File.open(File.join(options[:out], report_filename), mode)
-  end
+formatter_types = parse_formatter_types(options[:formatters])
+mode = normalize_mode(options[:mode])
+out_base = output_base_path(options[:out])
 
-formatter_class = case options[:formatter]
-                  when nil, 'simple'
-                    PrD::Formatters::SimpleFormatter
-                  when 'html'
-                    PrD::Formatters::HtmlFormatter
-                  when 'json'
-                    PrD::Formatters::JsonFormatter
-                  when 'pdf'
-                    PrD::Formatters::PdfFormatter
-                  else
-                    raise "Unsupported formatter type: #{options[:formatter]}. Supported: simple, html, json, pdf"
-                  end
+if formatter_types.include?('pdf') && out_base.nil?
+  raise 'PDF formatter requires --out to write a binary report file.'
+end
 
-mode = options[:mode] || 'verbose'
-supported_modes = %w[verbose synthetic]
-raise "Unsupported mode: #{mode}. Supported: verbose, synthetic" unless supported_modes.include?(mode)
+if formatter_types.length > 1 && out_base.nil?
+  raise 'Multiple formatter types require --out to specify where files will be written.'
+end
 
 serializers = {
   # Ferrum::Network::Exchange => (->(exchange) { exchange.url }),
   # PDF::Reader => (->(pdf) { pdf.pages.map(&:text).join("\n") })
 }
 
-formatter = formatter_class.new(io:, serializers:, mode: mode.to_sym)
-runtime = PrD::Runtime.new(formatter:, output_dir: options[:out], config_file: options[:config])
+destinations =
+  if out_base.nil?
+    [{ io: STDOUT, formatter: FORMATTERS.fetch(formatter_types.first)[:klass].new(io: STDOUT, serializers:, mode: mode.to_sym) }]
+  else
+    output_dir = File.dirname(out_base)
+    FileUtils.mkdir_p(output_dir)
+    formatter_types.map do |type|
+      config = FORMATTERS.fetch(type)
+      output_path = "#{out_base}#{config[:extension]}"
+      io = File.open(output_path, config[:binary] ? 'wb' : 'w')
+      { io:, formatter: config[:klass].new(io:, serializers:, mode: mode.to_sym) }
+    end
+  end
+
+formatter =
+  if destinations.length == 1
+    destinations.first[:formatter]
+  else
+    CompositeFormatter.new(destinations.map { |destination| destination[:formatter] })
+  end
+
+runtime_output_dir = out_base.nil? ? nil : File.dirname(out_base)
+runtime = PrD::Runtime.new(formatter:, output_dir: runtime_output_dir, config_file: options[:config])
 runtime.run(tests)
 exit_status = runtime.success? ? 0 : 1
-io.close if io != STDOUT
+destinations.each do |destination|
+  io = destination[:io]
+  io.close if io != STDOUT
+end
 exit(exit_status)

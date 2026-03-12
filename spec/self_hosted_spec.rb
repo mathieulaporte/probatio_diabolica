@@ -2,6 +2,8 @@ require 'stringio'
 require 'open3'
 require 'json'
 require 'tempfile'
+require 'tmpdir'
+require 'shellwords'
 
 def capture_stderr
   previous_stderr = $stderr
@@ -161,6 +163,150 @@ describe 'PrD self-hosted reliability' do
     end
   end
 
+  it 'generates multiple report formats from CLI with a shared output base path' do
+    spec_file = Tempfile.new(['prd_cli_multi', '_spec.rb'])
+    begin
+      spec_file.write(<<~SPEC)
+        describe 'CLI multi formatter suite' do
+          context 'index coverage' do
+            it 'works' do
+              expect(1).to(eq(1))
+            end
+
+            pending 'later'
+          end
+        end
+      SPEC
+      spec_file.flush
+
+      Dir.mktmpdir('prd_multi_output') do |tmp_dir|
+        output_base = File.join(tmp_dir, 'my_report')
+        command = [
+          'bundle exec ruby bin/prd',
+          Shellwords.escape(spec_file.path),
+          '-t html,json',
+          '-t pdf',
+          '--out',
+          Shellwords.escape(output_base)
+        ].join(' ')
+
+        stdout, stderr, status = Open3.capture3(command)
+
+        expect(status.success?).to(be(true))
+        expect(stdout).to(eq(''))
+        expect(stderr).to(eq(''))
+
+        html_path = "#{output_base}.html"
+        json_path = "#{output_base}.json"
+        pdf_path = "#{output_base}.pdf"
+
+        expect(File.exist?(html_path)).to(eq(true))
+        expect(File.exist?(json_path)).to(eq(true))
+        expect(File.exist?(pdf_path)).to(eq(true))
+
+        html = File.read(html_path)
+        json = JSON.parse(File.read(json_path))
+        pdf = File.binread(pdf_path)
+
+        expect(html).to(includes('<html>'))
+        expect(html).to(includes('<nav class="report-index"'))
+        expect(html).to(includes('href="#ctx-1"'))
+        expect(html).to(includes('href="#test-1"'))
+        expect(html).to(includes('href="#pending-1"'))
+        expect(json['format']).to(eq('prd-json-v1'))
+        expect(pdf.start_with?('%PDF-')).to(eq(true))
+        expect(pdf).to(includes('Index'))
+        expect(pdf).to(includes('/Dest'))
+        expect(pdf).to(includes('ctx-1'))
+        expect(pdf).to(includes('test-1'))
+        expect(pdf).to(includes('pending-1'))
+      end
+    ensure
+      spec_file.close!
+    end
+  end
+
+  it 'writes report to default report name when --out points to a directory' do
+    spec_file = Tempfile.new(['prd_cli_out_dir', '_spec.rb'])
+    begin
+      spec_file.write(<<~SPEC)
+        describe 'CLI output dir suite' do
+          it 'works' do
+            expect(1).to(eq(1))
+          end
+        end
+      SPEC
+      spec_file.flush
+
+      Dir.mktmpdir('prd_out_dir') do |tmp_dir|
+        out_dir = File.join(tmp_dir, 'reports')
+        Dir.mkdir(out_dir)
+
+        command = [
+          'bundle exec ruby bin/prd',
+          Shellwords.escape(spec_file.path),
+          '-t json',
+          '--out',
+          Shellwords.escape(out_dir)
+        ].join(' ')
+
+        stdout, stderr, status = Open3.capture3(command)
+
+        expect(status.success?).to(be(true))
+        expect(stdout).to(eq(''))
+        expect(stderr).to(eq(''))
+
+        json_path = File.join(out_dir, 'report.json')
+        expect(File.exist?(json_path)).to(eq(true))
+
+        payload = JSON.parse(File.read(json_path))
+        expect(payload['format']).to(eq('prd-json-v1'))
+      end
+    ensure
+      spec_file.close!
+    end
+  end
+
+  it 'writes simple formatter output as .txt when --out points to a directory' do
+    spec_file = Tempfile.new(['prd_cli_simple_out_dir', '_spec.rb'])
+    begin
+      spec_file.write(<<~SPEC)
+        describe 'CLI simple output dir suite' do
+          it 'works' do
+            expect(1).to(eq(1))
+          end
+        end
+      SPEC
+      spec_file.flush
+
+      Dir.mktmpdir('prd_simple_out_dir') do |tmp_dir|
+        out_dir = File.join(tmp_dir, 'reports')
+        Dir.mkdir(out_dir)
+
+        command = [
+          'bundle exec ruby bin/prd',
+          Shellwords.escape(spec_file.path),
+          '--out',
+          Shellwords.escape(out_dir)
+        ].join(' ')
+
+        stdout, stderr, status = Open3.capture3(command)
+
+        expect(status.success?).to(be(true))
+        expect(stdout).to(eq(''))
+        expect(stderr).to(eq(''))
+
+        report_path = File.join(out_dir, 'report.txt')
+        expect(File.exist?(report_path)).to(eq(true))
+
+        report = File.read(report_path)
+        expect(report).to(includes('1 passed, 0 failed'))
+      end
+    ensure
+      spec_file.close!
+    end
+  end
+
   it 'generates minimal valid HTML output' do
     io = StringIO.new
     formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
@@ -183,6 +329,37 @@ describe 'PrD self-hosted reliability' do
     expect(html).to(includes('<strong>1 passed, 0 failed</strong>'))
   end
 
+  it 'adds an internal HTML index with context, test, and pending anchors' do
+    io = StringIO.new
+    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'HTML indexed suite' do
+          context 'Context block' do
+            it 'works' do
+              expect(1).to(eq(1))
+            end
+
+            pending 'later'
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    html = io.read
+    expect(html).to(includes('<nav class="report-index" aria-label="Report index">'))
+    expect(html).to(includes('href="#ctx-1"'))
+    expect(html).to(includes('href="#ctx-2"'))
+    expect(html).to(includes('href="#test-1"'))
+    expect(html).to(includes('href="#pending-1"'))
+    expect(html).to(includes('id="ctx-1"'))
+    expect(html).to(includes('id="ctx-2"'))
+    expect(html).to(includes('id="test-1"'))
+    expect(html).to(includes('id="pending-1"'))
+  end
+
   it 'escapes HTML content in HtmlFormatter output' do
     io = StringIO.new
     formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
@@ -201,6 +378,27 @@ describe 'PrD self-hosted reliability' do
     html = io.read
     expect(html).to(includes('&lt;script&gt;alert(1)&lt;/script&gt;'))
     expect(html).to(includes('&lt;b&gt;unsafe&lt;/b&gt;'))
+  end
+
+  it 'handles binary expectations in HtmlFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'HTML binary suite' do
+          it 'renders binary safely' do
+            bytes = [255, 0, 1].pack('C*')
+            expect(bytes).to(eq(bytes))
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    html = io.read
+    expect(html).to(includes('<html>'))
+    expect(html).to(includes('<strong>1 passed, 0 failed</strong>'))
   end
 
   it 'keeps LLM matcher deterministic with a fake client' do
@@ -225,8 +423,10 @@ describe 'PrD self-hosted reliability' do
     PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
       <<~SPEC
         describe 'JSON suite' do
+          let(:value) { 1 }
+
           it 'works' do
-            expect(1).to(eq(1))
+            expect(value).to(eq(1))
           end
         end
       SPEC
@@ -240,6 +440,29 @@ describe 'PrD self-hosted reliability' do
     expect(json['summary']['failed']).to(eq(0))
     expect(json['events'].is_a?(Array)).to(eq(true))
     expect(json['events'].any? { |e| e['type'] == 'matcher' }).to(eq(true))
+    expect(json['events'].any? { |e| e['type'] == 'let' }).to(eq(true))
+  end
+
+  it 'handles binary expectations in JsonFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::JsonFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'JSON binary suite' do
+          it 'renders binary safely' do
+            bytes = [255, 0, 1].pack('C*')
+            expect(bytes).to(eq(bytes))
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    json = JSON.parse(io.read)
+    expect(json['format']).to(eq('prd-json-v1'))
+    expect(json['summary']['passed']).to(eq(1))
+    expect(json['summary']['failed']).to(eq(0))
   end
 
   it 'reduces SimpleFormatter output in synthetic mode' do
@@ -294,6 +517,10 @@ describe 'PrD self-hosted reliability' do
     expect(html).to(includes("<div class='status success'>PASS</div>"))
     expect(html).to(includes('<h3 class="test-title">later</h3>'))
     expect(html).to(includes("<div class='status pending'>PENDING</div>"))
+    expect(html).to(includes('<nav class="report-index"'))
+    expect(html).to(includes('href="#ctx-1"'))
+    expect(html).to(includes('href="#test-1"'))
+    expect(html).to(includes('href="#pending-1"'))
     expect(html).to(includes('<strong>1 passed, 0 failed</strong>'))
     expect(html).not_to(includes('<strong>Expect:</strong>'))
     expect(html).not_to(includes('<strong>Matcher:</strong>'))
@@ -344,6 +571,10 @@ describe 'PrD self-hosted reliability' do
     content = io.string
     expect(content.start_with?('%PDF-')).to(eq(true))
     expect(content.length > 100).to(eq(true))
+    expect(content).to(includes('Index'))
+    expect(content).to(includes('/Dest'))
+    expect(content).to(includes('ctx-1'))
+    expect(content).to(includes('test-1'))
   end
 
   it 'produces a valid compact PDF report in synthetic mode' do
@@ -365,5 +596,10 @@ describe 'PrD self-hosted reliability' do
     content = io.string
     expect(content.start_with?('%PDF-')).to(eq(true))
     expect(content.length > 100).to(eq(true))
+    expect(content).to(includes('Index'))
+    expect(content).to(includes('/Dest'))
+    expect(content).to(includes('ctx-1'))
+    expect(content).to(includes('test-1'))
+    expect(content).to(includes('pending-1'))
   end
 end
