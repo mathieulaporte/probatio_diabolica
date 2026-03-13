@@ -4,6 +4,7 @@ require 'json'
 require 'tempfile'
 require 'tmpdir'
 require 'shellwords'
+require 'pdf-reader'
 
 def capture_stderr
   previous_stderr = $stderr
@@ -401,6 +402,56 @@ describe 'PrD self-hosted reliability' do
     expect(html).to(includes('<strong>1 passed, 0 failed</strong>'))
   end
 
+  it 'renders syntax-highlighted code blocks in HtmlFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'HTML code suite' do
+          let(:snippet) { PrD::Code.new(source: "def greet\\n  'hello'\\nend", language: 'ruby') }
+
+          it 'renders code values' do
+            expect(snippet).to(eq(snippet))
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    html = io.read
+    valid =
+      html.include?('class="highlight"') &&
+      html.include?('class="code-language"') &&
+      html.include?('ruby')
+    expect(valid).to(eq(true))
+  end
+
+  it 'renders let code blocks in HtmlFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'HTML let code suite' do
+          let(:page_html) { PrD::Code.new(source: "<main>\\n  <h1>Hello</h1>\\n</main>", language: 'html') }
+
+          it 'keeps rendering stable' do
+            expect(1).to(eq(1))
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    html = io.read
+    valid =
+      html.include?('<strong>Let:</strong>') &&
+      html.include?('class="code-language"') &&
+      html.include?('&lt;main&gt;')
+    expect(valid).to(eq(true))
+  end
+
   it 'keeps LLM matcher deterministic with a fake client' do
     fake_response = Struct.new(:content).new({ 'justification' => 'Checked locally', 'satisfy' => true })
     fake_client = Object.new
@@ -414,6 +465,56 @@ describe 'PrD self-hosted reliability' do
 
     expect(result.pass).to(eq(true))
     expect(result.comment).to(eq('Checked locally'))
+  end
+
+  it 'supports LLM matcher with PrD::Code inputs' do
+    fake_response = Struct.new(:content).new({ 'justification' => 'Checked code', 'satisfy' => true })
+    fake_client = Object.new
+    fake_client.define_singleton_method(:with_instructions) { |_msg| self }
+    fake_client.define_singleton_method(:with_params) { |_params| self }
+    fake_client.define_singleton_method(:with_schema) { |_schema| self }
+    fake_client.define_singleton_method(:ask) { |_prompt, **_kwargs| fake_response }
+
+    matcher = PrD::Matchers::LlmMatcher.new('condition', client: fake_client, timeout_seconds: 1, retries: 0)
+    result = matcher.matches?(PrD::Code.new(source: 'def value; 1; end', language: 'ruby'))
+
+    valid = result.pass == true && result.comment == 'Checked code'
+    expect(valid).to(eq(true))
+  end
+
+  it 'returns PrD::Code from source_code helper when available' do
+    prism_available = true
+    begin
+      require 'prism'
+    rescue LoadError
+      prism_available = false
+    end
+
+    if prism_available
+      class_code = source_code(PrD::Matchers::AllMatcher)
+      method_code = source_code(PrD::Matchers::AllMatcher.instance_method(:matches?))
+      valid =
+        class_code.is_a?(PrD::Code) &&
+        method_code.is_a?(PrD::Code) &&
+        class_code.language == 'ruby' &&
+        method_code.language == 'ruby' &&
+        class_code.source.include?('class AllMatcher') &&
+        method_code.source.include?('def matches?')
+      expect(valid).to(eq(true))
+    else
+      error_message = begin
+        source_code(PrD::Matchers::AllMatcher)
+        nil
+      rescue LoadError => e
+        e.message
+      end
+      expect(error_message).to(includes("Source code helpers require the 'prism' gem."))
+    end
+  end
+
+  it 'supports includes matcher with PrD::Code' do
+    code = PrD::Code.new(source: "alpha\\nbeta", language: 'ruby')
+    expect(code).to(includes('beta'))
   end
 
   it 'produces structured JSON formatter output' do
@@ -441,6 +542,34 @@ describe 'PrD self-hosted reliability' do
     expect(json['events'].is_a?(Array)).to(eq(true))
     expect(json['events'].any? { |e| e['type'] == 'matcher' }).to(eq(true))
     expect(json['events'].any? { |e| e['type'] == 'let' }).to(eq(true))
+  end
+
+  it 'serializes PrD::Code values in JsonFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::JsonFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'JSON code suite' do
+          let(:snippet) { PrD::Code.new(source: "def calc\\n  2\\nend", language: 'ruby') }
+
+          it 'serializes code object payloads' do
+            expect(snippet).to(eq(snippet))
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    json = JSON.parse(io.read)
+    expect_event = json['events'].find { |event| event['type'] == 'expect' }
+    payload = expect_event && expect_event['value']
+    valid =
+      payload.is_a?(Hash) &&
+      payload['type'] == 'code' &&
+      payload['language'] == 'ruby' &&
+      payload['source'].include?('def calc')
+    expect(valid).to(eq(true))
   end
 
   it 'handles binary expectations in JsonFormatter output' do
@@ -493,6 +622,28 @@ describe 'PrD self-hosted reliability' do
     expect(output).to(includes('1 passed, 1 failed'))
     expect(output).not_to(includes('Expect:'))
     expect(output).not_to(includes('Justification:'))
+  end
+
+  it 'renders code blocks with language in SimpleFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'Simple code suite' do
+          let(:snippet) { PrD::Code.new(source: "def format\\n  :ok\\nend", language: 'ruby') }
+
+          it 'prints code values' do
+            expect(snippet).to(eq(snippet))
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    output = io.read
+    valid = output.include?('Expect (ruby):') && output.include?('--- Code Block ---')
+    expect(valid).to(eq(true))
   end
 
   it 'reduces HtmlFormatter output in synthetic mode' do
@@ -575,6 +726,29 @@ describe 'PrD self-hosted reliability' do
     expect(content).to(includes('/Dest'))
     expect(content).to(includes('ctx-1'))
     expect(content).to(includes('test-1'))
+  end
+
+  it 'renders code blocks with language markers in PdfFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::PdfFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'PDF code suite' do
+          let(:snippet) { PrD::Code.new(source: "def pdf\\n  true\\nend", language: 'ruby') }
+
+          it 'renders code values' do
+            expect(snippet).to(eq(snippet))
+          end
+        end
+      SPEC
+    ])
+
+    content = io.string
+    reader = PDF::Reader.new(StringIO.new(content))
+    text = reader.pages.map(&:text).join("\n")
+    valid = text.include?('Expect (ruby)') && text.include?('Be equal to (ruby)')
+    expect(valid).to(eq(true))
   end
 
   it 'produces a valid compact PDF report in synthetic mode' do

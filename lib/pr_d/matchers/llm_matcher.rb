@@ -24,6 +24,8 @@ module PrD
       def matches?(actual)
         if actual.is_a?(String)
           return build_runtime_result(text(@expected, actual))
+        elsif defined?(PrD::Code) && actual.is_a?(PrD::Code)
+          return build_runtime_result(text(@expected, actual.source))
         elsif actual.is_a?(File)
           if actual.path.end_with?('.png', '.jpg', '.jpeg')
             return build_runtime_result(image(@expected, actual))

@@ -47,7 +47,12 @@ module PrD
       def subject(subject)
         return if synthetic?
         title('Subject')
-        output(subject, :white, indent: 1)
+        if code_object?(subject)
+          output("Code (#{subject.language}):", :white, indent: 1)
+          output(subject.source, :white, indent: 2)
+        else
+          output(subject, :white, indent: 1)
+        end
       end
 
       def pending(description = nil)
@@ -61,7 +66,12 @@ module PrD
 
       def expect(expectation)
         return if synthetic?
-        output("Expect: #{expectation}", :white, indent: 1)
+        if code_object?(expectation)
+          output("Expect (#{expectation.language}):", :white, indent: 1)
+          output(expectation.source, :white, indent: 2)
+        else
+          output("Expect: #{expectation}", :white, indent: 1)
+        end
       end
 
       def to
@@ -81,15 +91,15 @@ module PrD
         return if synthetic?
         case matcher
         when Matchers::EqMatcher
-          output("Be equal to: #{matcher.expected}", :white, indent: 2)
+          output_matcher_value('Be equal to', matcher.expected)
         when Matchers::BeMatcher
-          output("Be the same object as: #{matcher.expected}", :white, indent: 2)
+          output_matcher_value('Be the same object as', matcher.expected)
         when Matchers::IncludesMatcher
-          output("Include: #{matcher.expected}", :white, indent: 2)
+          output_matcher_value('Include', matcher.expected)
         when Matchers::HaveMatcher
-          output("Have: #{matcher.expected}", :white, indent: 2)
+          output_matcher_value('Have', matcher.expected)
         when Matchers::LlmMatcher
-          output("Satisfy condition: #{matcher.expected}", :white, indent: 2)
+          output_matcher_value('Satisfy condition', matcher.expected)
         when Matchers::AllMatcher
           if sources
             code_line = matcher.expected.source_location.last.to_i
@@ -117,6 +127,9 @@ module PrD
           @io.puts "#{INDENT * indent}#{message}"
         when Array
           message.each { |line| output(line, color, figure: figure, indent: indent) }
+        when PrD::Code
+          output("Code (#{message.language}):", color, indent: indent)
+          output(message.source, color, indent: indent + 1)
         when String
           if message.include?("\n")
             @io.puts "#{COLOR_MAPPING[color]}#{INDENT * indent}--- Code Block ---#{COLOR_MAPPING[:default]}"
@@ -150,6 +163,15 @@ module PrD
 
       def title(message)
         output(message, :yellow)
+      end
+
+      def output_matcher_value(label, value)
+        if code_object?(value)
+          output("#{label} (#{value.language}):", :white, indent: 2)
+          output(value.source, :white, indent: 3)
+        else
+          output("#{label}: #{value}", :white, indent: 2)
+        end
       end
 
       def indented_message(message, indent_incr: 0)

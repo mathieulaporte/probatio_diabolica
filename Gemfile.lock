@@ -4,6 +4,7 @@ PATH
     probatio_diabolica (0.2.0)
       pdf-reader
       prawn
+      rouge
       ruby_llm
       ruby_llm-schema
       zeitwerk
@@ -45,6 +46,7 @@ GEM
       matrix (~> 0.4)
       pdf-core (~> 0.10.0)
       ttfunk (~> 1.8)
+    rouge (4.7.0)
     ruby-rc4 (0.1.5)
     ruby_llm (1.13.2)
       base64

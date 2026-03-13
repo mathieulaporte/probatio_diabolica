@@ -1,5 +1,6 @@
 require 'cgi'
 require 'base64'
+require 'rouge'
 
 module PrD
   module Formatters
@@ -9,6 +10,7 @@ module PrD
         @content = +''
         @index_entries = []
         @anchor_counters = Hash.new(0)
+        @rouge_formatter = Rouge::Formatters::HTMLLegacy.new(css_class: 'highlight')
       end
 
       def context(message)
@@ -51,20 +53,13 @@ module PrD
       end
 
       def let(value)
+        return if synthetic?
+        render_value_block('Let', value)
       end
 
       def subject(subject)
         return if synthetic?
-        @content << '<div class="subject-block">'
-        @content << "<p class=\"line\"><strong>Subject:</strong> #{escape(serialize(subject).to_s)}</p>"
-        if image_file?(subject)
-          @content << "<img src=\"#{image_data_uri(subject.path)}\" alt=\"Subject image\" class=\"subject-image\" />"
-        elsif pdf_file?(subject)
-          @content << "<embed src=\"#{pdf_data_uri(subject.path)}\" type=\"application/pdf\" class=\"subject-pdf\" />"
-        elsif pdf_reader?(subject)
-          @content << "<embed src=\"#{pdf_reader_data_uri(subject)}\" type=\"application/pdf\" class=\"subject-pdf\" />"
-        end
-        @content << '</div>'
+        render_value_block('Subject', subject)
       end
 
       def pending(description = nil)
@@ -85,7 +80,7 @@ module PrD
 
       def expect(expectation)
         return if synthetic?
-        @content << "<p class=\"line\"><strong>Expect:</strong> #{escape(serialize(expectation).to_s)}</p>"
+        render_labeled_value('Expect', expectation)
       end
 
       def to
@@ -102,15 +97,15 @@ module PrD
         return if synthetic?
         case matcher
         when Matchers::EqMatcher
-          @content << "<p class=\"line\"><strong>Matcher:</strong> Be equal to #{escape(serialize(matcher.expected).to_s)}</p>"
+          render_matcher_value('Be equal to', matcher.expected)
         when Matchers::BeMatcher
-          @content << "<p class=\"line\"><strong>Matcher:</strong> Be the same object as #{escape(serialize(matcher.expected).to_s)}</p>"
+          render_matcher_value('Be the same object as', matcher.expected)
         when Matchers::IncludesMatcher
-          @content << "<p class=\"line\"><strong>Matcher:</strong> Include #{escape(serialize(matcher.expected).to_s)}</p>"
+          render_matcher_value('Include', matcher.expected)
         when Matchers::HaveMatcher
-          @content << "<p class=\"line\"><strong>Matcher:</strong> Have #{escape(serialize(matcher.expected).to_s)}</p>"
+          render_matcher_value('Have', matcher.expected)
         when Matchers::LlmMatcher
-          @content << "<p class=\"line\"><strong>Matcher:</strong> Satisfy condition #{escape(serialize(matcher.expected).to_s)}</p>"
+          render_matcher_value('Satisfy condition', matcher.expected)
         when Matchers::AllMatcher
           if sources
             code_line = matcher.expected.source_location.last.to_i
@@ -156,6 +151,7 @@ module PrD
                   --muted: #6b7280;
                   --line: #e5e7eb;
                   --accent: #0f766e;
+                  --sidebar-width: 320px;
                   --pass-bg: #ecfdf5;
                   --pass-fg: #166534;
                   --fail-bg: #fef2f2;
@@ -182,12 +178,51 @@ module PrD
                   border-radius: 18px;
                 }
 
+                body.has-index main.container {
+                  width: min(960px, calc(100% - var(--sidebar-width) - 4rem));
+                  margin: 1rem 1rem 2rem calc(var(--sidebar-width) + 2rem);
+                }
+
+                body.has-index.index-collapsed main.container {
+                  width: min(960px, calc(100% - 2rem));
+                  margin: 1rem auto 2rem;
+                }
+
+                .index-toggle {
+                  position: fixed;
+                  top: 0.9rem;
+                  left: 0.9rem;
+                  z-index: 1100;
+                  border: 1px solid #d1d5db;
+                  border-radius: 999px;
+                  background: var(--paper);
+                  color: #0f172a;
+                  padding: 0.45rem 0.8rem;
+                  font-size: 0.9rem;
+                  font-weight: 600;
+                  cursor: pointer;
+                  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+                }
+
                 .report-index {
+                  position: fixed;
+                  top: 3.2rem;
+                  left: 1rem;
+                  bottom: 1rem;
+                  z-index: 1000;
+                  width: var(--sidebar-width);
                   background: var(--paper);
                   border: 1px solid var(--line);
                   border-radius: 14px;
                   padding: 0.9rem 1rem;
-                  margin-bottom: 1rem;
+                  overflow-y: auto;
+                  transition: transform 0.18s ease, opacity 0.18s ease;
+                }
+
+                body.has-index.index-collapsed .report-index {
+                  transform: translateX(calc(-1 * (var(--sidebar-width) + 1rem)));
+                  opacity: 0;
+                  pointer-events: none;
                 }
 
                 .index-title {
@@ -207,12 +242,16 @@ module PrD
                   padding-left: calc(var(--index-level, 0) * 1rem);
                 }
 
-                .index-item a {
+                .index-link {
+                  display: block;
+                  white-space: nowrap;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
                   color: var(--accent);
                   text-decoration: none;
                 }
 
-                .index-item a:hover {
+                .index-link:hover {
                   text-decoration: underline;
                 }
 
@@ -314,6 +353,53 @@ module PrD
                 .result.success { color: var(--pass-fg); background: var(--pass-bg); }
                 .result.failure { color: var(--fail-fg); background: var(--fail-bg); }
                 .muted { color: var(--muted); }
+
+                .code-language {
+                  color: var(--muted);
+                  font-size: 0.85rem;
+                  margin-bottom: 0.35rem;
+                  text-transform: uppercase;
+                  letter-spacing: 0.05em;
+                }
+
+                .code-block {
+                  margin: 0.45rem 0 0.7rem;
+                }
+
+                .highlight {
+                  margin: 0;
+                  border: 1px solid var(--line);
+                  border-radius: 10px;
+                  overflow-x: auto;
+                }
+
+                .highlight pre {
+                  margin: 0;
+                  padding: 0.8rem;
+                  line-height: 1.35;
+                }
+
+                @media (max-width: 960px) {
+                  :root { --sidebar-width: min(82vw, 320px); }
+
+                  body.has-index main.container,
+                  body.has-index.index-collapsed main.container {
+                    width: calc(100% - 1rem);
+                    margin: 4rem 0.5rem 1rem 0.5rem;
+                  }
+
+                  .report-index {
+                    top: 3.5rem;
+                    left: 0.5rem;
+                    bottom: 0.5rem;
+                  }
+
+                  body.has-index.index-collapsed .report-index {
+                    transform: translateX(calc(-1 * (var(--sidebar-width) + 0.6rem)));
+                  }
+                }
+
+                #{rouge_theme_css}
               </style>
             </head>
             <body>
@@ -325,28 +411,52 @@ module PrD
         return '' if @index_entries.empty?
 
         index_items = @index_entries.map do |entry|
-          "<li class=\"index-item\" style=\"--index-level: #{entry[:level]};\"><a href=\"##{entry[:anchor_id]}\">#{escape(index_label(entry))}</a></li>"
+          label = escape(index_label(entry))
+          "<li class=\"index-item\" style=\"--index-level: #{entry[:level]};\"><a class=\"index-link\" href=\"##{entry[:anchor_id]}\" title=\"#{label}\">#{label}</a></li>"
         end.join
 
         <<~HTML
-          <nav class="report-index" aria-label="Report index">
+          <button type="button" class="index-toggle" aria-expanded="false" aria-controls="report-index">Show index</button>
+          <nav id="report-index" class="report-index" aria-label="Report index">
             <h2 class="index-title">Index</h2>
             <ul class="index-list">
               #{index_items}
             </ul>
           </nav>
+          <script>
+            (function() {
+              var body = document.body;
+              var nav = document.getElementById('report-index');
+              var toggle = document.querySelector('.index-toggle');
+              if (!body || !nav || !toggle) return;
+
+              body.classList.add('has-index');
+
+              var syncToggleLabel = function() {
+                var isCollapsed = body.classList.contains('index-collapsed');
+                toggle.setAttribute('aria-expanded', String(!isCollapsed));
+                toggle.textContent = isCollapsed ? 'Show index' : 'Hide index';
+              };
+
+              toggle.addEventListener('click', function() {
+                body.classList.toggle('index-collapsed');
+                syncToggleLabel();
+              });
+
+              syncToggleLabel();
+            })();
+          </script>
         HTML
       end
 
       def index_label(entry)
-        prefix =
+        marker =
           case entry[:type]
-          when :context then 'Context'
-          when :pending then 'Pending'
-          else 'Test'
+          when :context then '+'
+          else '-'
           end
 
-        "#{prefix}: #{entry[:label]}"
+        "#{marker} #{entry[:label]}"
       end
 
       def add_index_entry(type:, label:, level:, anchor_id:)
@@ -361,6 +471,70 @@ module PrD
       def next_anchor_id(prefix)
         @anchor_counters[prefix] += 1
         "#{prefix}-#{@anchor_counters[prefix]}"
+      end
+
+      def render_labeled_value(label, value)
+        if code_object?(value)
+          @content << "<p class=\"line\"><strong>#{escape(label)}:</strong></p>"
+          @content << render_code_block(value)
+        else
+          @content << "<p class=\"line\"><strong>#{escape(label)}:</strong> #{escape(serialize(value).to_s)}</p>"
+        end
+      end
+
+      def render_matcher_value(label, value)
+        if code_object?(value)
+          @content << "<p class=\"line\"><strong>Matcher:</strong> #{escape(label)} (#{escape(value.language)})</p>"
+          @content << render_code_block(value)
+        else
+          @content << "<p class=\"line\"><strong>Matcher:</strong> #{escape(label)} #{escape(serialize(value).to_s)}</p>"
+        end
+      end
+
+      def render_value_block(label, value)
+        @content << '<div class="subject-block">'
+        if code_object?(value)
+          @content << "<p class=\"line\"><strong>#{escape(label)}:</strong></p>"
+          @content << render_code_block(value)
+        else
+          @content << "<p class=\"line\"><strong>#{escape(label)}:</strong> #{escape(serialize(value).to_s)}</p>"
+        end
+
+        if image_file?(value)
+          @content << "<img src=\"#{image_data_uri(value.path)}\" alt=\"#{escape(label)} image\" class=\"subject-image\" />"
+        elsif pdf_file?(value)
+          @content << "<embed src=\"#{pdf_data_uri(value.path)}\" type=\"application/pdf\" class=\"subject-pdf\" />"
+        elsif pdf_reader?(value)
+          @content << "<embed src=\"#{pdf_reader_data_uri(value)}\" type=\"application/pdf\" class=\"subject-pdf\" />"
+        end
+        @content << '</div>'
+      end
+
+      def render_code_block(code)
+        source = normalize_text(code.source)
+        language = normalize_text(code.language)
+        highlighted = highlight_code(source, language)
+        <<~HTML
+          <div class="code-block">
+            <div class="code-language">#{escape(language)}</div>
+            #{highlighted}
+          </div>
+        HTML
+      end
+
+      def highlight_code(source, language)
+        lexer = rouge_lexer_for(source, language)
+        @rouge_formatter.format(lexer.lex(source))
+      end
+
+      def rouge_lexer_for(source, language)
+        Rouge::Lexer.find_fancy(language, source) || Rouge::Lexers::PlainText
+      rescue StandardError
+        Rouge::Lexers::PlainText
+      end
+
+      def rouge_theme_css
+        Rouge::Themes::Github.render(scope: '.highlight')
       end
 
       def escape(message)

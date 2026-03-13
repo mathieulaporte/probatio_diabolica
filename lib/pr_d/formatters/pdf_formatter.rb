@@ -74,7 +74,10 @@ module PrD
       def subject(subject)
         return if synthetic?
         add_event(:subject, message: 'Subject', level: @level)
-        if image_file?(subject)
+        if code_object?(subject)
+          add_event(:code_header, message: "Language: #{subject.language}", level: @level + 1)
+          add_event(:code_block, message: subject.source, level: @level + 1)
+        elsif image_file?(subject)
           add_event(:detail, message: serialize(subject).to_s, level: @level + 1)
           add_event(:subject_image, message: subject.path, level: @level + 1)
         else
@@ -93,7 +96,12 @@ module PrD
 
       def expect(expectation)
         return if synthetic?
-        add_event(:detail, message: "Expect: #{serialize(expectation)}", level: @level + 1)
+        if code_object?(expectation)
+          add_event(:code_header, message: "Expect (#{expectation.language})", level: @level + 1)
+          add_event(:code_block, message: expectation.source, level: @level + 1)
+        else
+          add_event(:detail, message: "Expect: #{serialize(expectation)}", level: @level + 1)
+        end
       end
 
       def to
@@ -110,15 +118,15 @@ module PrD
         return if synthetic?
         case matcher
         when Matchers::EqMatcher
-          add_event(:matcher, message: "Be equal to: #{serialize(matcher.expected)}", level: @level + 2)
+          add_matcher_value_event('Be equal to', matcher.expected)
         when Matchers::BeMatcher
-          add_event(:matcher, message: "Be the same object as: #{serialize(matcher.expected)}", level: @level + 2)
+          add_matcher_value_event('Be the same object as', matcher.expected)
         when Matchers::IncludesMatcher
-          add_event(:matcher, message: "Include: #{serialize(matcher.expected)}", level: @level + 2)
+          add_matcher_value_event('Include', matcher.expected)
         when Matchers::HaveMatcher
-          add_event(:matcher, message: "Have: #{serialize(matcher.expected)}", level: @level + 2)
+          add_matcher_value_event('Have', matcher.expected)
         when Matchers::LlmMatcher
-          add_event(:matcher, message: "Satisfy condition: #{serialize(matcher.expected)}", level: @level + 2)
+          add_matcher_value_event('Satisfy condition', matcher.expected)
         when Matchers::AllMatcher
           add_event(:matcher, message: 'all match the given condition', level: @level + 2)
         else
@@ -227,6 +235,10 @@ module PrD
             status_line(document, 'PENDING', event[:message], event[:level], COLORS[:pending])
           when :matcher
             styled_line(document, event[:message], level: event[:level], size: 10, color: COLORS[:muted])
+          when :code_header
+            styled_line(document, event[:message], level: event[:level], size: 10, style: :bold, color: COLORS[:muted])
+          when :code_block
+            render_code_block(document, event[:message], level: event[:level])
           when :detail, :subject, :justification
             styled_line(document, event[:message], level: event[:level], size: 10, color: COLORS[:text])
           when :subject_image
@@ -282,6 +294,28 @@ module PrD
           )
         end
         document.move_down 2
+      end
+
+      def render_code_block(document, text, level:)
+        document.indent(level * 14) do
+          document.fill_color COLORS[:muted]
+          document.text '--- Code Block ---', size: 9, style: :italic
+          document.fill_color COLORS[:text]
+          document.font('Courier') { document.text text, size: 9 }
+          document.fill_color COLORS[:muted]
+          document.text '--- End Block ---', size: 9, style: :italic
+          document.fill_color COLORS[:text]
+        end
+        document.move_down 3
+      end
+
+      def add_matcher_value_event(label, value)
+        if code_object?(value)
+          add_event(:matcher, message: "#{label} (#{value.language})", level: @level + 2)
+          add_event(:code_block, message: value.source, level: @level + 2)
+        else
+          add_event(:matcher, message: "#{label}: #{serialize(value)}", level: @level + 2)
+        end
       end
 
       def index_label(entry)

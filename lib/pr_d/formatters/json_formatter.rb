@@ -117,6 +117,10 @@ module PrD
         serializer = @serializers[value.class]
         return serializer.call(value) if serializer
 
+        if code_object?(value)
+          return serialize_code(value)
+        end
+
         if value.is_a?(File)
           return serialize_file(value)
         end
@@ -134,6 +138,14 @@ module PrD
         end
 
         value
+      end
+
+      def serialize_code(code)
+        {
+          type: 'code',
+          language: code.language,
+          source: code.source
+        }
       end
 
       def serialize_file(file)

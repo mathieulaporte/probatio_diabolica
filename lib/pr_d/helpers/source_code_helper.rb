@@ -10,14 +10,14 @@ module PrD
 
           code = File.read(file)
           tree = Prism.parse(code)
-          extract_class_from_node(tree.value, class_or_method.to_s, code)
+          extract_code_object(extract_class_from_node(tree.value, class_or_method.to_s, code))
         else
           file, line = class_or_method.source_location
           return nil unless file && line
 
           code = File.read(file)
           tree = Prism.parse(code)
-          extract_method_from_node(tree.value, class_or_method.name, code)
+          extract_code_object(extract_method_from_node(tree.value, class_or_method.name, code))
         end
       end
 
@@ -60,6 +60,12 @@ module PrD
         require 'prism'
       rescue LoadError => e
         raise LoadError, "Source code helpers require the 'prism' gem. Install it with `gem install prism` or add `gem 'prism'` to your Gemfile. (#{e.message})"
+      end
+
+      def extract_code_object(source)
+        return nil if source.nil?
+
+        PrD::Code.new(source:, language: 'ruby')
       end
     end
   end

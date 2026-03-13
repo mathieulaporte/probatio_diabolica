@@ -1,9 +1,10 @@
 describe 'Browser helpers examples' do
   let(:fixture_url) { "file://#{File.expand_path('examples/browser_fixture.html', Dir.pwd)}" }
 
+  subject { text(at: fixture_url, css: '#status', warmup_time: 1) }
+
   it 'extracts dynamic text after JavaScript execution' do
-    extracted = text(at: fixture_url, css: '#status', warmup_time: 1)
-    expect(extracted).to(includes('Loaded via JS'))
+    expect.to(includes('Loaded via JS'))
   end
 
   context 'with a screenshot', model: "mistral-small-latest"  do

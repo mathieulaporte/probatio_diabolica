@@ -23,12 +23,7 @@ module PrD
         text_node = browser.at_css(css)
         raise ArgumentError, "CSS selector not found: #{css}" unless text_node
 
-        text_id = Digest::SHA256.hexdigest("#{at}-#{css}")
-        file_name = File.join(chrome_annex_dir, "text-#{text_id}.txt")
-        File.open(file_name, 'w') do |file|
-          file.write(text_node.text.scan(/.{1,100}/m).join("\n"))
-        end
-        File.open(file_name, 'rb')
+        PrD::Code.new(source: text_node.text, language: 'text')
       end
 
       def network(at:, warmup_time: 2)
@@ -54,7 +49,8 @@ module PrD
       def html(at:, warmup_time: 2)
         browser = prepare_browser(at:, warmup_time:)
         yield browser if block_given?
-        browser.body
+
+        PrD::Code.new(source: browser.body, language: 'html')
       end
 
       def close_chrome_browser

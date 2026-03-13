@@ -100,6 +100,10 @@ module PrD
 
         value
       end
+
+      def code_object?(value)
+        defined?(PrD::Code) && value.is_a?(PrD::Code)
+      end
     end
   end
 end

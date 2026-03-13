@@ -231,6 +231,20 @@ end
 ### Source code helper (Prism)
 
 `source_code(...)` uses the `prism` gem to parse Ruby source and extract class/method code.
+It returns a `PrD::Code` object:
+
+- `source` (`String`)
+- `language` (`String`, default: `ruby`)
+
+Example:
+
+```ruby
+let(:code) { source_code(PrD::Matchers::AllMatcher) }
+
+it 'uses raw source text' do
+  expect(code.source).to(includes('class AllMatcher'))
+end
+```
 
 Prerequisites:
 
@@ -273,13 +287,16 @@ When you define a `subject`, each formatter tries to render it in the most usefu
   - for files, prints a textual representation (for example path, file preview for `.txt`)
 - `HtmlFormatter`:
   - renders text values directly
+  - for `PrD::Code`, renders syntax-highlighted code blocks (Rouge)
   - for image files (`.png`, `.jpg`, `.jpeg`), embeds the image in the report
   - for PDF subjects (`File` `.pdf` or `PDF::Reader`), embeds the PDF with a `data:application/pdf;base64,...` URI
 - `PdfFormatter`:
   - renders text values as report lines
+  - for `PrD::Code`, renders language + code block (plain, without syntax colors)
   - for image files (`.png`, `.jpg`, `.jpeg`), inserts the image directly in the PDF report
 - `JsonFormatter`:
   - keeps a structured representation for machine processing
+  - for `PrD::Code`, emits a structured payload (`type: "code"`, `language`, `source`)
   - `File` values (images, PDFs, text files, etc.) are embedded as base64 payloads
   - `PDF::Reader` values are also embedded as base64 (`application/pdf`)
 

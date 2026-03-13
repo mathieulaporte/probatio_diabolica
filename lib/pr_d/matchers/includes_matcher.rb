@@ -5,6 +5,8 @@ module PrD
       def matches?(actual)
         if actual.is_a?(String) || actual.is_a?(Array)
           PrD::Runtime::TestResult.new(comment: nil, pass: actual.include?(@expected))
+        elsif defined?(PrD::Code) && actual.is_a?(PrD::Code)
+          PrD::Runtime::TestResult.new(comment: nil, pass: actual.source.include?(@expected))
         elsif actual.is_a?(File)
           content = actual.read
           actual.rewind
