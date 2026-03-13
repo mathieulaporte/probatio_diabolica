@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    probatio_diabolica (0.2.0)
+    probatio_diabolica (0.3.0)
       pdf-reader
       prawn
       rouge
