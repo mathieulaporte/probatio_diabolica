@@ -22,12 +22,14 @@ Gem::Specification.new do |spec|
   spec.files = Dir[
     "lib/**/*.rb",
     "bin/prd",
+    "bin/prd_mcp",
     "README.md",
     "Gemfile",
     "probatio_diabolica.gemspec"
   ]
   spec.bindir        = "bin"
   spec.executables << "prd"
+  spec.executables << "prd_mcp"
   spec.require_paths = ["lib"]
 
   spec.add_dependency "ruby_llm"

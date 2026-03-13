@@ -21,7 +21,7 @@ Tests are evaluated with `instance_eval` (not through RSpec).
 
 ## Installation
 
-### From the gem
+### In the Gemfile
 
 ```ruby
 gem 'probatio_diabolica'
@@ -31,63 +31,6 @@ Then:
 
 ```bash
 bundle install
-```
-
-In Ruby code, you can load it with:
-
-```ruby
-require "probatio_diabolica"
-```
-
-### From this repository (local development)
-
-```bash
-bundle install
-bundle exec prd examples/basics_spec.rb
-```
-
-### Build and install as a gem
-
-```bash
-# build the package
-gem build probatio_diabolica.gemspec
-
-# install locally from the built gem
-gem install ./probatio_diabolica-*.gem
-```
-
-## Release workflow
-
-Use the release helper to bump version, refresh `Gemfile.lock`, create commit/tag, and push:
-
-```bash
-# explicit version
-bin/release --version 0.2.0
-
-# or env-style
-VERSION=0.2.0 bin/release
-
-# semantic bump from current version
-bin/release --bump patch
-```
-
-Useful options:
-
-- `--dry-run` preview all actions without modifying files/git
-- `--no-push` create commit/tag locally only
-- `--skip-tests` skip `bundle exec ruby bin/prd spec --mode synthetic`
-- `--allow-dirty` bypass clean-working-tree guard
-
-After installation, you can run:
-
-```bash
-prd examples/basics_spec.rb
-```
-
-If `prd` is not found, add your gem bin directory to `PATH`:
-
-```bash
-export PATH="$(ruby -e 'print Gem.user_dir')/bin:$PATH"
 ```
 
 ## Configuration LLM
@@ -118,6 +61,29 @@ From source checkout (without gem install), this is always valid:
 ```bash
 bundle exec ruby bin/prd <file_or_directory> [options]
 ```
+
+## MCP server (`run_specs`)
+
+A minimal MCP server is available through:
+
+```bash
+bundle exec ruby bin/prd_mcp
+```
+
+It exposes one tool: `run_specs`.
+
+Input:
+- `path` (required): file or directory containing specs
+- `config` (optional): same as `-c`
+- `out` (optional): same as `-o`
+- `formatters` (optional): array of `simple|html|json|pdf` (default: `["simple"]`)
+- `mode` (optional): `verbose|synthetic` (default: `synthetic`)
+
+Output (`structuredContent`):
+- `ok`, `exit_code`
+- `summary` (`passed`, `failed`, `pending`)
+- `artifacts` (`base_out`, `reports`, `annex_dir`)
+- `logs` (`stdout`, `stderr`)
 
 Options:
 
@@ -151,33 +117,36 @@ Examples:
 
 ```bash
 # single file
-bundle exec ruby bin/prd examples/basics_spec.rb
+prd examples/basics_spec.rb
 
 # all *_spec.rb files in a directory
-bundle exec ruby bin/prd examples
+prd examples
 
 # HTML report in an existing directory (creates ./tmp/report.html)
-bundle exec ruby bin/prd examples/image_spec.rb -t html -o ./tmp/
+prd examples/image_spec.rb -t html -o ./tmp/
 
 # multiple reports from one run with shared base name
-bundle exec ruby bin/prd examples/basics_spec.rb -t html,json,pdf -o ./tmp/my_report
+prd examples/basics_spec.rb -t html,json,pdf -o ./tmp/my_report
 
 # compact synthetic output on console
-bundle exec ruby bin/prd examples/basics_spec.rb --mode synthetic
+prd examples/basics_spec.rb --mode synthetic
 ```
 
 ## Available DSL
+
+It is inspired by RSpec but with a custom runtime and additional features.
 
 ### Structure
 
 ```ruby
 describe 'My domain' do
   context 'my context' do
-    let(:value) { 5 }
-    subject { 'hello' }
+    let(:two) { 2 }
+    let(:three) { 3 }
+    subject { two + three }
 
     it 'runs an assertion' do
-      expect(value).to eq(5)
+      expect.to eq(5)
     end
 
     pending 'test to implement later'
