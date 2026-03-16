@@ -1,51 +1,67 @@
 describe 'Includes matcher' do
   context 'supported inputs' do
-    it 'works with strings' do
-      expect('probatio diabolica').to includes('diabolica')
-    end
+    context 'with strings' do
+      subject { 'probatio diabolica' }
 
-    it 'works with arrays' do
-      expect(%w[alpha beta gamma]).to includes('beta')
-    end
-
-    it 'works with files and rewinds the cursor' do
-      tmp_dir = File.join(Dir.pwd, 'tmp')
-      Dir.mkdir(tmp_dir) unless Dir.exist?(tmp_dir)
-      path = File.join(tmp_dir, 'includes_file.txt')
-      File.write(path, "line 1\nline 2\nline 3\n")
-      file = File.open(path, 'rb')
-
-      begin
-        expect(file).to includes('line 2')
-        expect(file.pos).to eq(0)
-      ensure
-        file.close
+      it 'works with strings' do
+        expect.to(includes('diabolica'))
       end
     end
 
-    it 'works with PDF::Reader' do
-      require 'prawn'
-      tmp_dir = File.join(Dir.pwd, 'tmp')
-      Dir.mkdir(tmp_dir) unless Dir.exist?(tmp_dir)
-      pdf_path = File.join(tmp_dir, 'includes_pdf.pdf')
-      Prawn::Document.generate(pdf_path) { text 'probatio pdf marker' }
+    context 'with arrays' do
+      subject { %w[alpha beta gamma] }
 
-      reader = PDF::Reader.new(pdf_path)
-      expect(reader).to includes('pdf marker')
+      it 'works with arrays' do
+        expect.to(includes('beta'))
+      end
+    end
+
+    context 'with files' do
+      let(:tmp_dir) { File.join(Dir.pwd, 'tmp') }
+      let(:path) { File.join(tmp_dir, 'includes_file.txt') }
+      subject { File.open(path, 'rb') }
+
+      it 'works with files and rewinds the cursor' do
+        Dir.mkdir(tmp_dir) unless Dir.exist?(tmp_dir)
+        File.write(path, "line 1\nline 2\nline 3\n")
+
+        begin
+          expect.to(includes('line 2'))
+          expect(subject.pos).to(eq(0))
+        ensure
+          subject.close
+        end
+      end
+    end
+
+    context 'with PDF::Reader' do
+      let(:tmp_dir) { File.join(Dir.pwd, 'tmp') }
+      let(:pdf_path) { File.join(tmp_dir, 'includes_pdf.pdf') }
+      subject { PDF::Reader.new(pdf_path) }
+
+      it 'works with PDF::Reader' do
+        require 'prawn'
+        Dir.mkdir(tmp_dir) unless Dir.exist?(tmp_dir)
+        Prawn::Document.generate(pdf_path) { text 'probatio pdf marker' }
+
+        expect.to(includes('pdf marker'))
+      end
     end
   end
 
   context 'unsupported inputs' do
-    it 'raises ArgumentError' do
-      error = nil
+    subject do
       begin
-        expect(123).to includes('2')
+        expect(123).to(includes('2'))
+        nil
       rescue => e
-        error = e
+        e
       end
+    end
 
-      expect(error.class).to eq(ArgumentError)
-      expect(error.message).to includes('Unsupported type for includes matcher')
+    it 'raises ArgumentError' do
+      expect(subject.class).to(eq(ArgumentError))
+      expect(subject.message).to(includes('Unsupported type for includes matcher'))
     end
   end
 end

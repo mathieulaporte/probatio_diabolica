@@ -357,19 +357,49 @@ module PrD
                 .code-language {
                   color: var(--muted);
                   font-size: 0.85rem;
-                  margin-bottom: 0.35rem;
                   text-transform: uppercase;
                   letter-spacing: 0.05em;
                 }
 
                 .code-block {
                   margin: 0.45rem 0 0.7rem;
+                  border: 1px solid var(--line);
+                  border-radius: 10px;
+                  background: #fff;
+                }
+
+                .code-toggle {
+                  list-style: none;
+                  cursor: pointer;
+                  padding: 0.6rem 0.8rem;
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  gap: 0.8rem;
+                  font-size: 0.88rem;
+                  color: var(--text);
+                }
+
+                .code-toggle::-webkit-details-marker {
+                  display: none;
+                }
+
+                .code-toggle::after {
+                  content: 'Open';
+                  color: var(--muted);
+                  font-size: 0.78rem;
+                  letter-spacing: 0.03em;
+                  text-transform: uppercase;
+                }
+
+                .code-block[open] .code-toggle::after {
+                  content: 'Close';
                 }
 
                 .highlight {
                   margin: 0;
-                  border: 1px solid var(--line);
-                  border-radius: 10px;
+                  border-top: 1px solid var(--line);
+                  border-radius: 0 0 10px 10px;
                   overflow-x: auto;
                 }
 
@@ -515,10 +545,12 @@ module PrD
         language = normalize_text(code.language)
         highlighted = highlight_code(source, language)
         <<~HTML
-          <div class="code-block">
-            <div class="code-language">#{escape(language)}</div>
+          <details class="code-block">
+            <summary class="code-toggle">
+              <span class="code-language">#{escape(language)}</span>
+            </summary>
             #{highlighted}
-          </div>
+          </details>
         HTML
       end
 

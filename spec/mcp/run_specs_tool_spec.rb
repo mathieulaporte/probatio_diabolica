@@ -2,31 +2,34 @@ require 'tmpdir'
 require 'tempfile'
 require 'json'
 
-
 describe 'MCP run_specs tool' do
   let(:tool) { PrD::Mcp::RunSpecsTool.new }
 
-  it 'runs a valid spec file and returns a successful summary' do
-    spec_file = Tempfile.new(['mcp_run_specs_ok', '_spec.rb'])
-    begin
-      spec_file.write(<<~SPEC)
-        describe 'MCP pass suite' do
-          it 'passes' do
-            expect(1).to(eq(1))
+  context 'with a valid spec file' do
+    subject do
+      spec_file = Tempfile.new(['mcp_run_specs_ok', '_spec.rb'])
+      begin
+        spec_file.write(<<~SPEC)
+          describe 'MCP pass suite' do
+            it 'passes' do
+              expect(1).to(eq(1))
+            end
           end
-        end
-      SPEC
-      spec_file.flush
+        SPEC
+        spec_file.flush
 
-      result = tool.call({ 'path' => spec_file.path })
+        tool.call({ 'path' => spec_file.path })
+      ensure
+        spec_file.close!
+      end
+    end
 
-      expect(result[:ok]).to(eq(true))
-      expect(result[:exit_code]).to(eq(0))
-      expect(result[:summary]).to(eq({ passed: 1, failed: 0, pending: 0 }))
-      expect(result[:artifacts]).to(eq({ base_out: nil, reports: [], annex_dir: nil }))
-      expect(result.dig(:logs, :stderr)).to(eq(''))
-    ensure
-      spec_file.close!
+    it 'returns a successful summary' do
+      expect(subject[:ok]).to(eq(true))
+      expect(subject[:exit_code]).to(eq(0))
+      expect(subject[:summary]).to(eq({ passed: 1, failed: 0, pending: 0 }))
+      expect(subject[:artifacts]).to(eq({ base_out: nil, reports: [], annex_dir: nil }))
+      expect(subject.dig(:logs, :stderr)).to(eq(''))
     end
   end
 
@@ -57,24 +60,34 @@ describe 'MCP run_specs tool' do
     end
   end
 
-  it 'raises explicit errors for invalid inputs' do
-    error_message = begin
-      tool.call({ 'path' => './spec/path_that_does_not_exist.rb' })
-      nil
-    rescue StandardError => e
-      e.message
+  context 'with a missing path' do
+    subject do
+      begin
+        tool.call({ 'path' => './spec/path_that_does_not_exist.rb' })
+        nil
+      rescue StandardError => e
+        e.message
+      end
     end
 
-    expect(error_message).to(eq('Path not found: ./spec/path_that_does_not_exist.rb'))
+    it 'raises an explicit error' do
+      expect.to(eq('Path not found: ./spec/path_that_does_not_exist.rb'))
+    end
+  end
 
-    mode_error = begin
-      tool.call({ 'path' => 'spec', 'mode' => 'compact' })
-      nil
-    rescue StandardError => e
-      e.message
+  context 'with an unsupported mode' do
+    subject do
+      begin
+        tool.call({ 'path' => 'spec', 'mode' => 'compact' })
+        nil
+      rescue StandardError => e
+        e.message
+      end
     end
 
-    expect(mode_error).to(eq('Unsupported mode: compact'))
+    it 'raises an explicit error' do
+      expect.to(eq('Unsupported mode: compact'))
+    end
   end
 
   it 'generates artifacts for html and json formatters when out is set' do
@@ -115,28 +128,32 @@ describe 'MCP run_specs tool' do
     end
   end
 
-  it 'raises an explicit error when pdf is requested without out' do
-    spec_file = Tempfile.new(['mcp_run_specs_pdf', '_spec.rb'])
-    begin
-      spec_file.write(<<~SPEC)
-        describe 'pdf suite' do
-          it 'passes' do
-            expect(1).to(eq(1))
+  context 'when pdf is requested without out' do
+    subject do
+      spec_file = Tempfile.new(['mcp_run_specs_pdf', '_spec.rb'])
+      begin
+        spec_file.write(<<~SPEC)
+          describe 'pdf suite' do
+            it 'passes' do
+              expect(1).to(eq(1))
+            end
           end
+        SPEC
+        spec_file.flush
+
+        begin
+          tool.call({ 'path' => spec_file.path, 'formatters' => ['pdf'] })
+          nil
+        rescue StandardError => e
+          e.message
         end
-      SPEC
-      spec_file.flush
-
-      error_message = begin
-        tool.call({ 'path' => spec_file.path, 'formatters' => ['pdf'] })
-        nil
-      rescue StandardError => e
-        e.message
+      ensure
+        spec_file.close!
       end
+    end
 
-      expect(error_message).to(eq('Using multiple formatters or pdf requires `out`.'))
-    ensure
-      spec_file.close!
+    it 'raises an explicit error' do
+      expect.to(eq('Using multiple formatters or pdf requires `out`.'))
     end
   end
 end

@@ -1,4 +1,5 @@
 require 'prawn'
+require 'rouge'
 
 module PrD
   module Formatters
@@ -76,7 +77,7 @@ module PrD
         add_event(:subject, message: 'Subject', level: @level)
         if code_object?(subject)
           add_event(:code_header, message: "Language: #{subject.language}", level: @level + 1)
-          add_event(:code_block, message: subject.source, level: @level + 1)
+          add_event(:code_block, message: subject.source, level: @level + 1, language: subject.language)
         elsif image_file?(subject)
           add_event(:detail, message: serialize(subject).to_s, level: @level + 1)
           add_event(:subject_image, message: subject.path, level: @level + 1)
@@ -98,7 +99,7 @@ module PrD
         return if synthetic?
         if code_object?(expectation)
           add_event(:code_header, message: "Expect (#{expectation.language})", level: @level + 1)
-          add_event(:code_block, message: expectation.source, level: @level + 1)
+          add_event(:code_block, message: expectation.source, level: @level + 1, language: expectation.language)
         else
           add_event(:detail, message: "Expect: #{serialize(expectation)}", level: @level + 1)
         end
@@ -153,13 +154,13 @@ module PrD
 
       private
 
-      def add_event(type, message:, level:, anchor_id: nil)
+      def add_event(type, message:, level:, anchor_id: nil, **extra)
         @events << {
           type:,
           message: safe_pdf_text(message.to_s),
           level: [level, 0].max,
           anchor_id:
-        }
+        }.merge(extra)
       end
 
       def add_index_entry(type:, label:, level:, anchor_id:)
@@ -175,6 +176,43 @@ module PrD
         text
           .encode('Windows-1252', invalid: :replace, undef: :replace, replace: '?')
           .encode('UTF-8')
+      end
+
+      def rouge_lexer_for(source, language)
+        Rouge::Lexer.find_fancy(language.to_s, source.to_s) || Rouge::Lexers::PlainText
+      rescue StandardError
+        Rouge::Lexers::PlainText
+      end
+
+      def rouge_token_color(token)
+        qualname = token.qualname.to_s
+
+        return '6B7280' if qualname.start_with?('Comment')
+        return 'C2410C' if qualname.start_with?('Keyword', 'Operator')
+        return '1D4ED8' if qualname.start_with?('Name.Function', 'Name.Class', 'Name.Builtin')
+        return '047857' if qualname.start_with?('Literal.String')
+        return '7C3AED' if qualname.start_with?('Literal.Number')
+
+        COLORS[:text]
+      end
+
+      def highlighted_code_fragments(source, language)
+        lexer = rouge_lexer_for(source, language)
+        fragments = lexer.lex(source.to_s).filter_map do |token, value|
+          next if value.nil? || value.empty?
+
+          {
+            text: safe_pdf_text(value),
+            color: rouge_token_color(token),
+            font: 'Courier'
+          }
+        end
+
+        return fragments unless fragments.empty?
+
+        [{ text: safe_pdf_text(source.to_s), color: COLORS[:text], font: 'Courier' }]
+      rescue StandardError
+        [{ text: safe_pdf_text(source.to_s), color: COLORS[:text], font: 'Courier' }]
       end
 
       def render_header(document)
@@ -238,7 +276,7 @@ module PrD
           when :code_header
             styled_line(document, event[:message], level: event[:level], size: 10, style: :bold, color: COLORS[:muted])
           when :code_block
-            render_code_block(document, event[:message], level: event[:level])
+            render_code_block(document, event[:message], level: event[:level], language: event[:language])
           when :detail, :subject, :justification
             styled_line(document, event[:message], level: event[:level], size: 10, color: COLORS[:text])
           when :subject_image
@@ -296,12 +334,11 @@ module PrD
         document.move_down 2
       end
 
-      def render_code_block(document, text, level:)
+      def render_code_block(document, text, level:, language: nil)
         document.indent(level * 14) do
           document.fill_color COLORS[:muted]
           document.text '--- Code Block ---', size: 9, style: :italic
-          document.fill_color COLORS[:text]
-          document.font('Courier') { document.text text, size: 9 }
+          document.formatted_text(highlighted_code_fragments(text, language), size: 9)
           document.fill_color COLORS[:muted]
           document.text '--- End Block ---', size: 9, style: :italic
           document.fill_color COLORS[:text]
@@ -312,7 +349,7 @@ module PrD
       def add_matcher_value_event(label, value)
         if code_object?(value)
           add_event(:matcher, message: "#{label} (#{value.language})", level: @level + 2)
-          add_event(:code_block, message: value.source, level: @level + 2)
+          add_event(:code_block, message: value.source, level: @level + 2, language: value.language)
         else
           add_event(:matcher, message: "#{label}: #{serialize(value)}", level: @level + 2)
         end

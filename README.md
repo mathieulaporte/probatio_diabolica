@@ -161,6 +161,42 @@ end
 - `expect { |subject| ... }.to matcher`
 - `expect.to matcher` (uses `subject`)
 
+### Spec best practices for `subject` (PRD reports)
+
+When a test defines a `subject`, PRD can surface it more clearly in generated reports.
+For CLI and integration specs, prefer:
+
+- grouping with explicit `context`
+- one `subject` per context for the main action
+- assertions written with `expect.to(...)` when the assertion targets `subject`
+
+Example:
+
+```ruby
+context 'when CLI receives an unknown formatter type' do
+  subject { Open3.capture3('bundle exec ruby bin/prd spec/self_hosted_spec.rb -t unknown') }
+
+  it 'fails fast on unknown formatter type in CLI' do
+    _stdout, stderr, status = subject
+
+    expect(status.success?).to(be(false))
+    expect(stderr).to(includes('Unsupported formatter type: unknown. Supported: simple, html, json, pdf'))
+  end
+end
+```
+
+For simple value checks, this pattern keeps specs concise:
+
+```ruby
+context 'with strings' do
+  subject { 'probatio diabolica' }
+
+  it 'matches expected content' do
+    expect.to(includes('diabolica'))
+  end
+end
+```
+
 ### Matchers
 
 - `eq(expected)` equality with `==`
@@ -256,12 +292,12 @@ When you define a `subject`, each formatter tries to render it in the most usefu
   - for files, prints a textual representation (for example path, file preview for `.txt`)
 - `HtmlFormatter`:
   - renders text values directly
-  - for `PrD::Code`, renders syntax-highlighted code blocks (Rouge)
+  - for `PrD::Code`, renders syntax-highlighted code blocks (Rouge) inside collapsible sections
   - for image files (`.png`, `.jpg`, `.jpeg`), embeds the image in the report
   - for PDF subjects (`File` `.pdf` or `PDF::Reader`), embeds the PDF with a `data:application/pdf;base64,...` URI
 - `PdfFormatter`:
   - renders text values as report lines
-  - for `PrD::Code`, renders language + code block (plain, without syntax colors)
+  - for `PrD::Code`, renders language + syntax-highlighted code block (Rouge -> Prawn colors)
   - for image files (`.png`, `.jpg`, `.jpeg`), inserts the image directly in the PDF report
 - `JsonFormatter`:
   - keeps a structured representation for machine processing

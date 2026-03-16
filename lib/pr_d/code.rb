@@ -1,8 +1,9 @@
 module PrD
-  class Code
+  class Code < SimpleDelegator
     attr_reader :source, :language
 
     def initialize(source:, language: 'ruby')
+      super(source.to_s)
       @source = source.to_s
       @language = language.to_s
     end

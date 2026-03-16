@@ -1,25 +1,35 @@
 describe 'All matcher' do
   context 'when actual responds to all?' do
-    it 'passes when all elements satisfy the predicate' do
-      expect([2, 4, 6, 8]).to all(->(n) { n.even? })
+    context 'with only even numbers' do
+      subject { [2, 4, 6, 8] }
+
+      it 'passes when all elements satisfy the predicate' do
+        expect.to(all(->(n) { n.even? }))
+      end
     end
 
-    it 'supports not_to when at least one element fails the predicate' do
-      expect([2, 3, 4]).not_to all(->(n) { n.even? })
+    context 'with at least one odd number' do
+      subject { [2, 3, 4] }
+
+      it 'supports not_to when at least one element fails the predicate' do
+        expect(subject).not_to(all(->(n) { n.even? }))
+      end
     end
   end
 
   context 'when actual does not respond to all?' do
-    it 'raises NoMethodError' do
-      error = nil
+    subject do
       begin
-        expect(123).to all(->(n) { n > 0 })
+        expect(123).to(all(->(n) { n > 0 }))
+        nil
       rescue => e
-        error = e
+        e
       end
+    end
 
-      expect(error.class).to eq(NoMethodError)
-      expect(error.message).to includes("undefined method 'all?'")
+    it 'raises NoMethodError' do
+      expect(subject.class).to(eq(NoMethodError))
+      expect(subject.message).to(includes("undefined method 'all?'"))
     end
   end
 end

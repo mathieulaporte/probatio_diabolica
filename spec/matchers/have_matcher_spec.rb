@@ -1,25 +1,35 @@
 describe 'Have matcher' do
   context 'when include? is available' do
-    it 'uses include? for arrays' do
-      expect([1, 2, 3]).to have(2)
+    context 'with arrays' do
+      subject { [1, 2, 3] }
+
+      it 'uses include? for arrays' do
+        expect.to(have(2))
+      end
     end
 
-    it 'uses include? for strings' do
-      expect('abcdef').to have('cd')
+    context 'with strings' do
+      subject { 'abcdef' }
+
+      it 'uses include? for strings' do
+        expect.to(have('cd'))
+      end
     end
   end
 
   context 'when include? is not available' do
-    it 'raises NoMethodError' do
-      error = nil
+    subject do
       begin
-        expect(nil).to have(:anything)
+        expect(nil).to(have(:anything))
+        nil
       rescue => e
-        error = e
+        e
       end
+    end
 
-      expect(error.class).to eq(NoMethodError)
-      expect(error.message).to includes("undefined method 'include?'")
+    it 'raises NoMethodError' do
+      expect(subject.class).to(eq(NoMethodError))
+      expect(subject.message).to(includes("undefined method 'include?'"))
     end
   end
 end

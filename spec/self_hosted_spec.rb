@@ -15,6 +15,11 @@ ensure
   $stderr = previous_stderr
 end
 
+def capture_cli(command)
+  stdout, stderr, status = Open3.capture3(command)
+  [PrD::Code.new(source: stdout, language: 'bash'), stderr, status]
+end
+
 describe 'PrD self-hosted reliability' do
   let(:simple_report) do
     io = StringIO.new
@@ -87,46 +92,66 @@ describe 'PrD self-hosted reliability' do
     expect(output).to(includes('No tests found. Provide at least one spec content to run.'))
   end
 
-  it 'fails fast on unknown formatter type in CLI' do
-    _stdout, stderr, status = Open3.capture3('bundle exec ruby bin/prd spec/self_hosted_spec.rb -t unknown')
+  context 'when CLI receives an unknown formatter type' do
+    subject { capture_cli('bundle exec ruby bin/prd spec/self_hosted_spec.rb -t unknown') }
 
-    expect(status.success?).to(be(false))
-    expect(stderr).to(includes('Unsupported formatter type: unknown. Supported: simple, html, json, pdf'))
+    it 'fails fast on unknown formatter type in CLI' do
+      _stdout, stderr, status = subject
+
+      expect(status.success?).to(be(false))
+      expect(stderr).to(includes('Unsupported formatter type: unknown. Supported: simple, html, json, pdf'))
+    end
   end
 
-  it 'fails fast on unknown output mode in CLI' do
-    _stdout, stderr, status = Open3.capture3('bundle exec ruby bin/prd spec/self_hosted_spec.rb --mode compact')
+  context 'when CLI receives an unknown output mode' do
+    subject { capture_cli('bundle exec ruby bin/prd spec/self_hosted_spec.rb --mode compact') }
 
-    expect(status.success?).to(be(false))
-    expect(stderr).to(includes('Unsupported mode: compact. Supported: verbose, synthetic'))
+    it 'fails fast on unknown output mode in CLI' do
+      _stdout, stderr, status = subject
+
+      expect(status.success?).to(be(false))
+      expect(stderr).to(includes('Unsupported mode: compact. Supported: verbose, synthetic'))
+    end
   end
 
-  it 'fails fast on missing CLI path' do
-    _stdout, stderr, status = Open3.capture3('bundle exec ruby bin/prd ./spec/does_not_exist_spec.rb')
+  context 'when CLI receives a missing path' do
+    subject { capture_cli('bundle exec ruby bin/prd ./spec/does_not_exist_spec.rb') }
 
-    expect(status.success?).to(be(false))
-    expect(stderr).to(includes('Path not found: ./spec/does_not_exist_spec.rb'))
+    it 'fails fast on missing CLI path' do
+      _stdout, stderr, status = subject
+
+      expect(status.success?).to(be(false))
+      expect(stderr).to(includes('Path not found: ./spec/does_not_exist_spec.rb'))
+    end
   end
 
-  it 'supports synthetic mode from CLI with compact output' do
-    spec_file = Tempfile.new(['prd_cli_synthetic', '_spec.rb'])
-    begin
-      spec_file.write(<<~SPEC)
-        describe 'CLI synthetic suite' do
-          it 'passes' do
-            expect(1).to(eq(1))
+  context 'when CLI runs in synthetic mode' do
+    subject do
+      spec_file = Tempfile.new(['prd_cli_synthetic', '_spec.rb'])
+      begin
+        spec_file.write(<<~SPEC)
+          describe 'CLI synthetic suite' do
+            it 'passes' do
+              expect(1).to(eq(1))
+            end
+
+            it 'fails' do
+              expect(1).to(eq(2))
+            end
+
+            pending 'later'
           end
+        SPEC
+        spec_file.flush
 
-          it 'fails' do
-            expect(1).to(eq(2))
-          end
+        capture_cli("bundle exec ruby bin/prd #{spec_file.path} --mode synthetic")
+      ensure
+        spec_file.close!
+      end
+    end
 
-          pending 'later'
-        end
-      SPEC
-      spec_file.flush
-
-      stdout, stderr, status = Open3.capture3("bundle exec ruby bin/prd #{spec_file.path} --mode synthetic")
+    it 'supports synthetic mode from CLI with compact output' do
+      stdout, stderr, status = subject
 
       expect(status.success?).to(be(false))
       expect(stderr).to(eq(''))
@@ -136,175 +161,198 @@ describe 'PrD self-hosted reliability' do
       expect(stdout).to(includes('1 passed, 1 failed'))
       expect(stdout).not_to(includes('Expect:'))
       expect(stdout).not_to(includes('Justification:'))
-    ensure
-      spec_file.close!
     end
   end
 
-  it 'keeps verbose mode behavior from CLI' do
-    spec_file = Tempfile.new(['prd_cli_verbose', '_spec.rb'])
-    begin
-      spec_file.write(<<~SPEC)
-        describe 'CLI verbose suite' do
-          it 'works' do
-            expect(1).to(eq(1))
+  context 'when CLI runs in verbose mode' do
+    subject do
+      spec_file = Tempfile.new(['prd_cli_verbose', '_spec.rb'])
+      begin
+        spec_file.write(<<~SPEC)
+          describe 'CLI verbose suite' do
+            it 'works' do
+              expect(1).to(eq(1))
+            end
           end
-        end
-      SPEC
-      spec_file.flush
+        SPEC
+        spec_file.flush
 
-      stdout, stderr, status = Open3.capture3("bundle exec ruby bin/prd #{spec_file.path} --mode verbose")
+        capture_cli("bundle exec ruby bin/prd #{spec_file.path} --mode verbose")
+      ensure
+        spec_file.close!
+      end
+    end
+
+    it 'keeps verbose mode behavior from CLI' do
+      stdout, stderr, status = subject
 
       expect(status.success?).to(be(true))
       expect(stderr).to(eq(''))
       expect(stdout).to(includes('Expect:'))
       expect(stdout).to(includes('Test passed successfully'))
-    ensure
-      spec_file.close!
     end
   end
 
-  it 'generates multiple report formats from CLI with a shared output base path' do
-    spec_file = Tempfile.new(['prd_cli_multi', '_spec.rb'])
-    begin
-      spec_file.write(<<~SPEC)
-        describe 'CLI multi formatter suite' do
-          context 'index coverage' do
+  context 'when CLI generates multiple formatter outputs with --out base path' do
+    subject do
+      spec_file = Tempfile.new(['prd_cli_multi', '_spec.rb'])
+      begin
+        spec_file.write(<<~SPEC)
+          describe 'CLI multi formatter suite' do
+            context 'index coverage' do
+              it 'works' do
+                expect(1).to(eq(1))
+              end
+
+              pending 'later'
+            end
+          end
+        SPEC
+        spec_file.flush
+
+        Dir.mktmpdir('prd_multi_output') do |tmp_dir|
+          output_base = File.join(tmp_dir, 'my_report')
+          command = [
+            'bundle exec ruby bin/prd',
+            Shellwords.escape(spec_file.path),
+            '-t html,json',
+            '-t pdf',
+            '--out',
+            Shellwords.escape(output_base)
+          ].join(' ')
+
+          stdout, stderr, status = capture_cli(command)
+          html_path = "#{output_base}.html"
+          json_path = "#{output_base}.json"
+          pdf_path = "#{output_base}.pdf"
+
+          {
+            stdout:,
+            stderr:,
+            status:,
+            html_exists: File.exist?(html_path),
+            json_exists: File.exist?(json_path),
+            pdf_exists: File.exist?(pdf_path),
+            html: File.read(html_path),
+            json: JSON.parse(File.read(json_path)),
+            pdf: File.binread(pdf_path)
+          }
+        end
+      ensure
+        spec_file.close!
+      end
+    end
+
+    it 'generates multiple report formats from CLI with a shared output base path' do
+      expect(subject[:status].success?).to(be(true))
+      expect(subject[:stdout]).to(eq(''))
+      expect(subject[:stderr]).to(eq(''))
+
+      expect(subject[:html_exists]).to(eq(true))
+      expect(subject[:json_exists]).to(eq(true))
+      expect(subject[:pdf_exists]).to(eq(true))
+
+      expect(subject[:html]).to(includes('<html>'))
+      expect(subject[:html]).to(includes('<nav class="report-index"'))
+      expect(subject[:html]).to(includes('href="#ctx-1"'))
+      expect(subject[:html]).to(includes('href="#test-1"'))
+      expect(subject[:html]).to(includes('href="#pending-1"'))
+      expect(subject[:json]['format']).to(eq('prd-json-v1'))
+      expect(subject[:pdf].start_with?('%PDF-')).to(eq(true))
+      expect(subject[:pdf]).to(includes('Index'))
+      expect(subject[:pdf]).to(includes('/Dest'))
+      expect(subject[:pdf]).to(includes('ctx-1'))
+      expect(subject[:pdf]).to(includes('test-1'))
+      expect(subject[:pdf]).to(includes('pending-1'))
+    end
+  end
+
+  context 'when --out points to a directory for json formatter' do
+    subject do
+      spec_file = Tempfile.new(['prd_cli_out_dir', '_spec.rb'])
+      begin
+        spec_file.write(<<~SPEC)
+          describe 'CLI output dir suite' do
             it 'works' do
               expect(1).to(eq(1))
             end
-
-            pending 'later'
           end
+        SPEC
+        spec_file.flush
+
+        Dir.mktmpdir('prd_out_dir') do |tmp_dir|
+          out_dir = File.join(tmp_dir, 'reports')
+          Dir.mkdir(out_dir)
+
+          command = [
+            'bundle exec ruby bin/prd',
+            Shellwords.escape(spec_file.path),
+            '-t json',
+            '--out',
+            Shellwords.escape(out_dir)
+          ].join(' ')
+
+          stdout, stderr, status = capture_cli(command)
+          json_path = File.join(out_dir, 'report.json')
+          payload = JSON.parse(File.read(json_path)) if File.exist?(json_path)
+
+          { stdout:, stderr:, status:, json_path:, payload: }
         end
-      SPEC
-      spec_file.flush
-
-      Dir.mktmpdir('prd_multi_output') do |tmp_dir|
-        output_base = File.join(tmp_dir, 'my_report')
-        command = [
-          'bundle exec ruby bin/prd',
-          Shellwords.escape(spec_file.path),
-          '-t html,json',
-          '-t pdf',
-          '--out',
-          Shellwords.escape(output_base)
-        ].join(' ')
-
-        stdout, stderr, status = Open3.capture3(command)
-
-        expect(status.success?).to(be(true))
-        expect(stdout).to(eq(''))
-        expect(stderr).to(eq(''))
-
-        html_path = "#{output_base}.html"
-        json_path = "#{output_base}.json"
-        pdf_path = "#{output_base}.pdf"
-
-        expect(File.exist?(html_path)).to(eq(true))
-        expect(File.exist?(json_path)).to(eq(true))
-        expect(File.exist?(pdf_path)).to(eq(true))
-
-        html = File.read(html_path)
-        json = JSON.parse(File.read(json_path))
-        pdf = File.binread(pdf_path)
-
-        expect(html).to(includes('<html>'))
-        expect(html).to(includes('<nav class="report-index"'))
-        expect(html).to(includes('href="#ctx-1"'))
-        expect(html).to(includes('href="#test-1"'))
-        expect(html).to(includes('href="#pending-1"'))
-        expect(json['format']).to(eq('prd-json-v1'))
-        expect(pdf.start_with?('%PDF-')).to(eq(true))
-        expect(pdf).to(includes('Index'))
-        expect(pdf).to(includes('/Dest'))
-        expect(pdf).to(includes('ctx-1'))
-        expect(pdf).to(includes('test-1'))
-        expect(pdf).to(includes('pending-1'))
+      ensure
+        spec_file.close!
       end
-    ensure
-      spec_file.close!
+    end
+
+    it 'writes report to default report name when --out points to a directory' do
+      expect(subject[:status].success?).to(be(true))
+      expect(subject[:stdout]).to(eq(''))
+      expect(subject[:stderr]).to(eq(''))
+      expect(File.exist?(subject[:json_path])).to(eq(true))
+      expect(subject[:payload]['format']).to(eq('prd-json-v1'))
     end
   end
 
-  it 'writes report to default report name when --out points to a directory' do
-    spec_file = Tempfile.new(['prd_cli_out_dir', '_spec.rb'])
-    begin
-      spec_file.write(<<~SPEC)
-        describe 'CLI output dir suite' do
-          it 'works' do
-            expect(1).to(eq(1))
+  context 'when --out points to a directory for simple formatter' do
+    subject do
+      spec_file = Tempfile.new(['prd_cli_simple_out_dir', '_spec.rb'])
+      begin
+        spec_file.write(<<~SPEC)
+          describe 'CLI simple output dir suite' do
+            it 'works' do
+              expect(1).to(eq(1))
+            end
           end
+        SPEC
+        spec_file.flush
+
+        Dir.mktmpdir('prd_simple_out_dir') do |tmp_dir|
+          out_dir = File.join(tmp_dir, 'reports')
+          Dir.mkdir(out_dir)
+
+          command = [
+            'bundle exec ruby bin/prd',
+            Shellwords.escape(spec_file.path),
+            '--out',
+            Shellwords.escape(out_dir)
+          ].join(' ')
+
+          stdout, stderr, status = capture_cli(command)
+          report_path = File.join(out_dir, 'report.txt')
+          report = File.read(report_path) if File.exist?(report_path)
+
+          { stdout:, stderr:, status:, report_path:, report: }
         end
-      SPEC
-      spec_file.flush
-
-      Dir.mktmpdir('prd_out_dir') do |tmp_dir|
-        out_dir = File.join(tmp_dir, 'reports')
-        Dir.mkdir(out_dir)
-
-        command = [
-          'bundle exec ruby bin/prd',
-          Shellwords.escape(spec_file.path),
-          '-t json',
-          '--out',
-          Shellwords.escape(out_dir)
-        ].join(' ')
-
-        stdout, stderr, status = Open3.capture3(command)
-
-        expect(status.success?).to(be(true))
-        expect(stdout).to(eq(''))
-        expect(stderr).to(eq(''))
-
-        json_path = File.join(out_dir, 'report.json')
-        expect(File.exist?(json_path)).to(eq(true))
-
-        payload = JSON.parse(File.read(json_path))
-        expect(payload['format']).to(eq('prd-json-v1'))
+      ensure
+        spec_file.close!
       end
-    ensure
-      spec_file.close!
     end
-  end
 
-  it 'writes simple formatter output as .txt when --out points to a directory' do
-    spec_file = Tempfile.new(['prd_cli_simple_out_dir', '_spec.rb'])
-    begin
-      spec_file.write(<<~SPEC)
-        describe 'CLI simple output dir suite' do
-          it 'works' do
-            expect(1).to(eq(1))
-          end
-        end
-      SPEC
-      spec_file.flush
-
-      Dir.mktmpdir('prd_simple_out_dir') do |tmp_dir|
-        out_dir = File.join(tmp_dir, 'reports')
-        Dir.mkdir(out_dir)
-
-        command = [
-          'bundle exec ruby bin/prd',
-          Shellwords.escape(spec_file.path),
-          '--out',
-          Shellwords.escape(out_dir)
-        ].join(' ')
-
-        stdout, stderr, status = Open3.capture3(command)
-
-        expect(status.success?).to(be(true))
-        expect(stdout).to(eq(''))
-        expect(stderr).to(eq(''))
-
-        report_path = File.join(out_dir, 'report.txt')
-        expect(File.exist?(report_path)).to(eq(true))
-
-        report = File.read(report_path)
-        expect(report).to(includes('1 passed, 0 failed'))
-      end
-    ensure
-      spec_file.close!
+    it 'writes simple formatter output as .txt when --out points to a directory' do
+      expect(subject[:status].success?).to(be(true))
+      expect(subject[:stdout]).to(eq(''))
+      expect(subject[:stderr]).to(eq(''))
+      expect(File.exist?(subject[:report_path])).to(eq(true))
+      expect(subject[:report]).to(includes('1 passed, 0 failed'))
     end
   end
 
@@ -421,6 +469,8 @@ describe 'PrD self-hosted reliability' do
     io.rewind
     html = io.read
     valid =
+      html.include?('class="code-block"') &&
+      html.include?('class="code-toggle"') &&
       html.include?('class="highlight"') &&
       html.include?('class="code-language"') &&
       html.include?('ruby')
@@ -749,6 +799,15 @@ describe 'PrD self-hosted reliability' do
     text = reader.pages.map(&:text).join("\n")
     valid = text.include?('Expect (ruby)') && text.include?('Be equal to (ruby)')
     expect(valid).to(eq(true))
+  end
+
+  it 'builds colored code fragments for ruby snippets in PdfFormatter' do
+    formatter = PrD::Formatters::PdfFormatter.new(io: StringIO.new, serializers: {})
+    fragments = formatter.send(:highlighted_code_fragments, "def pdf\n  true\nend", 'ruby')
+
+    expect(fragments.empty?).to(eq(false))
+    non_default = fragments.any? { |fragment| fragment[:color] != PrD::Formatters::PdfFormatter::COLORS[:text] }
+    expect(non_default).to(eq(true))
   end
 
   it 'produces a valid compact PDF report in synthetic mode' do
