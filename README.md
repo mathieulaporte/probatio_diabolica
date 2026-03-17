@@ -210,12 +210,29 @@ end
 
 `PrD::Runtime` exposes helpers to test content loaded in Chrome:
 
+- `page(at:, warmup_time:)` opens a page and returns a `BrowserSession`
 - `screen(at:, width:, height:, warmup_time:)` captures a PNG and returns a `File`
-- `text(at:, css:, warmup_time:)` extracts a CSS node into a `.txt` file and returns a `File`
+- `text(at:, css:, warmup_time:)` extracts a CSS node and returns `PrD::Code` (language: `text`)
 - `network(at:, warmup_time:)` returns Ferrum network traffic
 - `network_urls(at:, warmup_time:)` returns traffic URLs
 - `pdf(at:, warmup_time:)` generates a PDF and returns a `PDF::Reader`
 - `html(at:, warmup_time:)` returns HTML (`browser.body`)
+
+`BrowserSession` adds high-level page interactions:
+
+- `find(css:/xpath:, wait:, shadow:)`
+- `exists?(css:/xpath:, wait:, shadow:)`
+- `click(css:/xpath:, wait:, shadow:)`
+- `fill(css:/xpath:, with:, clear:, blur:, wait:, shadow:)`
+- `select_option(css:, value:/values:, by:, wait:, shadow:)`
+- `set_files(css:, path:/paths:, wait:, shadow:)` (alias `upload_files`)
+- `navigate(to:, warmup_time:)`
+
+About `shadow:`:
+
+- `shadow:` is an ordered CSS path used to narrow the scope before the target selector.
+- Each step can be a shadow host or a regular container.
+- If a step has `shadowRoot`, search continues inside it; otherwise search continues inside the matched node.
 
 Prerequisites:
 
@@ -230,6 +247,22 @@ Example:
 it 'checks dynamic content loaded in browser' do
   page_text = text(at: 'https://example.com', css: 'main')
   expect(page_text).to(includes('Example Domain'))
+end
+```
+
+Form interaction and file upload example:
+
+```ruby
+it 'uploads a file in a shadow-dom form' do
+  html(at: 'https://example.com/upload', warmup_time: 2) do |page|
+    page.click(css: 'button[data-open-upload]')
+    page.fill(css: 'input[name="title"]', with: 'Invoice')
+    page.set_files(
+      css: 'input[type="file"]',
+      shadow: ['vax-scanner', '[data-view="upload"]'],
+      path: 'examples/random_photo.png'
+    )
+  end
 end
 ```
 

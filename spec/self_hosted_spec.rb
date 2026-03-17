@@ -562,6 +562,148 @@ describe 'PrD self-hosted reliability' do
     end
   end
 
+  it 'provides browser interaction helpers for click/fill/select/upload' do
+    fake_node = Class.new do
+      attr_reader :clicked_with, :typed_text, :evaluations, :selected_values, :selected_by, :selected_files, :blurred
+
+      def initialize
+        @evaluations = []
+      end
+
+      def scroll_into_view
+        self
+      end
+
+      def click(**kwargs)
+        @clicked_with = kwargs
+        self
+      end
+
+      def focus
+        self
+      end
+
+      def evaluate(expression)
+        @evaluations << expression
+        nil
+      end
+
+      def type(value)
+        @typed_text = value
+        self
+      end
+
+      def blur
+        @blurred = true
+        self
+      end
+
+      def select(*values, by:)
+        @selected_values = values
+        @selected_by = by
+        self
+      end
+
+      def select_file(value)
+        @selected_files = value
+        self
+      end
+    end.new
+
+    fake_browser = Class.new do
+      attr_reader :last_css, :last_xpath, :shadow_queries
+
+      def initialize(node)
+        @node = node
+        @shadow_queries = []
+      end
+
+      def at_css(selector)
+        @last_css = selector
+        @node
+      end
+
+      def at_xpath(selector)
+        @last_xpath = selector
+        @node
+      end
+
+      def evaluate_func(function, *args)
+        @shadow_queries << { function:, args: }
+        @node
+      end
+
+      def evaluate(_expression)
+        'delegated'
+      end
+    end.new(fake_node)
+
+    session = PrD::Helpers::ChromeHelper::BrowserSession.new(fake_browser)
+    session.click(css: 'button[type="submit"]')
+    session.fill(css: '#email', with: 'ada@example.com', blur: true)
+    session.select_option(css: 'select#size', value: 'M')
+    session.set_files(
+      css: 'input[type="file"]',
+      shadow: ['vax-scanner', '[data-view="upload"]'],
+      path: 'examples/random_photo.png'
+    )
+    delegated = session.evaluate('window.location.href')
+
+    expected_path = File.expand_path('examples/random_photo.png', Dir.pwd)
+    valid =
+      fake_node.clicked_with[:mode] == :left &&
+      fake_node.typed_text == 'ada@example.com' &&
+      fake_node.blurred == true &&
+      fake_node.selected_values == ['M'] &&
+      fake_node.selected_by == :value &&
+      fake_node.selected_files == [expected_path] &&
+      fake_browser.shadow_queries.length == 1 &&
+      delegated == 'delegated'
+    expect(valid).to(eq(true))
+  end
+
+  it 'yields a BrowserSession in html blocks while keeping browser API access' do
+    fake_browser = Class.new do
+      attr_reader :urls, :evaluated
+
+      def initialize
+        @urls = []
+      end
+
+      def go_to(url)
+        @urls << url
+      end
+
+      def evaluate(expression)
+        @evaluated = expression
+        true
+      end
+
+      def body
+        '<main>ok</main>'
+      end
+    end.new
+
+    helper_host = Object.new
+    helper_host.extend(PrD::Helpers::ChromeHelper)
+    helper_host.instance_variable_set(:@output_dir, nil)
+    helper_host.define_singleton_method(:chrome_browser) { fake_browser }
+
+    yielded_session = nil
+    rendered = helper_host.html(at: 'https://example.test', warmup_time: 0) do |session|
+      yielded_session = session
+      session.navigate(to: 'https://example.test/upload')
+      session.evaluate('window.__uploaded = true')
+    end
+
+    valid =
+      yielded_session.is_a?(PrD::Helpers::ChromeHelper::BrowserSession) &&
+      fake_browser.urls == ['https://example.test', 'https://example.test/upload'] &&
+      fake_browser.evaluated == 'window.__uploaded = true' &&
+      rendered.source.include?('<main>ok</main>')
+    expect(valid).to(eq(true))
+  end
+
   it 'supports includes matcher with PrD::Code' do
     code = PrD::Code.new(source: "alpha\\nbeta", language: 'ruby')
     expect(code).to(includes('beta'))

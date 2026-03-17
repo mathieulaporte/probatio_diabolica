@@ -12,6 +12,30 @@
       }
     </style>
     <script>
+      class FixtureScanner extends HTMLElement {
+        connectedCallback() {
+          const root = this.attachShadow({ mode: "open" });
+          root.innerHTML = `
+            <section data-view="upload">
+              <label>
+                Select file
+                <input id="scan-file" type="file" />
+              </label>
+              <p id="upload-status">No file selected</p>
+            </section>
+          `;
+
+          const input = root.querySelector("#scan-file");
+          const status = root.querySelector("#upload-status");
+          input.addEventListener("change", () => {
+            const file = input.files && input.files[0];
+            status.textContent = file ? "Selected: " + file.name : "No file selected";
+          });
+        }
+      }
+
+      customElements.define("fixture-scanner", FixtureScanner);
+
       window.addEventListener("load", () => {
         const status = document.getElementById("status");
         setTimeout(() => {
@@ -24,6 +48,12 @@
     <main>
       <h1>browser fixture</h1>
       <p id="status">Loading...</p>
+      <form id="upload-form">
+        <label for="title">Title</label>
+        <input id="title" name="title" />
+        <button type="button" data-open-upload>Open upload</button>
+        <fixture-scanner></fixture-scanner>
+      </form>
     </main>
   </body>
 </html>

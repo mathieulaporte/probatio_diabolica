@@ -1,5 +1,6 @@
 describe 'Browser helpers examples' do
   let(:fixture_url) { "file://#{File.expand_path('examples/browser_fixture.html', Dir.pwd)}" }
+  let(:photo_path) { File.expand_path('examples/random_photo.png', Dir.pwd) }
 
   subject { text(at: fixture_url, css: '#status', warmup_time: 1) }
 
@@ -17,6 +18,25 @@ describe 'Browser helpers examples' do
   it 'returns the rendered html body' do
     rendered = html(at: fixture_url, warmup_time: 1)
     expect(rendered).to(includes('browser fixture'))
+  end
+
+  it 'interacts with forms and uploads a file' do
+    uploaded_label = nil
+
+    html(at: fixture_url, warmup_time: 1) do |page|
+      page.fill(css: '#title', with: 'My upload')
+      page.click(css: 'button[data-open-upload]')
+      page.set_files(
+        css: 'input[type="file"]',
+        shadow: ['fixture-scanner', '[data-view="upload"]'],
+        path: photo_path
+      )
+      uploaded_label = page.evaluate(
+        "document.querySelector('fixture-scanner').shadowRoot.querySelector('#upload-status').textContent"
+      )
+    end
+
+    expect(uploaded_label).to(includes('random_photo.png'))
   end
 
   context 'with a PDF generation' do
