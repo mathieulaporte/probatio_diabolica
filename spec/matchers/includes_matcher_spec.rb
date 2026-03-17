@@ -17,12 +17,12 @@ describe 'Includes matcher' do
     end
 
     context 'with files' do
-      let(:tmp_dir) { File.join(Dir.pwd, 'tmp') }
-      let(:path) { File.join(tmp_dir, 'includes_file.txt') }
+      let(:fixtures) { File.join(Dir.pwd, 'spec/fixtures') }
+      let(:path) { File.join(fixtures, 'includes_file.txt') }
       subject { File.open(path, 'rb') }
 
       it 'works with files and rewinds the cursor' do
-        Dir.mkdir(tmp_dir) unless Dir.exist?(tmp_dir)
+        Dir.mkdir(fixtures) unless Dir.exist?(fixtures)
         File.write(path, "line 1\nline 2\nline 3\n")
 
         begin
@@ -35,13 +35,13 @@ describe 'Includes matcher' do
     end
 
     context 'with PDF::Reader' do
-      let(:tmp_dir) { File.join(Dir.pwd, 'tmp') }
-      let(:pdf_path) { File.join(tmp_dir, 'includes_pdf.pdf') }
+      let(:fixtures) { File.join(Dir.pwd, 'spec/fixtures') }
+      let(:pdf_path) { File.join(fixtures, 'includes_pdf.pdf') }
       subject { PDF::Reader.new(pdf_path) }
 
       it 'works with PDF::Reader' do
         require 'prawn'
-        Dir.mkdir(tmp_dir) unless Dir.exist?(tmp_dir)
+        Dir.mkdir(fixtures) unless Dir.exist?(fixtures)
         Prawn::Document.generate(pdf_path) { text 'probatio pdf marker' }
 
         expect.to(includes('pdf marker'))
