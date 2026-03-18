@@ -136,17 +136,14 @@ module PrD
             <head>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
-              <link rel="preconnect" href="https://fonts.googleapis.com">
-              <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-              <link href="https://fonts.googleapis.com/css2?family=Saira:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
               <style>
                 :root {
-                  --bg: #f3f4f6;
+                  --bg: #ffffff;
                   --paper: #ffffff;
-                  --ink: #1f2937;
-                  --muted: #6b7280;
-                  --line: #e5e7eb;
-                  --accent: #0f766e;
+                  --ink: #111827;
+                  --muted: #4b5563;
+                  --line: #d1d5db;
+                  --accent: #0f172a;
                   --sidebar-width: 320px;
                   --pass-bg: #ecfdf5;
                   --pass-fg: #166534;
@@ -161,17 +158,17 @@ module PrD
                   margin: 0;
                   background: var(--bg);
                   color: var(--ink);
-                  font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-                  line-height: 1.45;
+                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                  line-height: 1.4;
                 }
 
                 main.container {
                   width: min(960px, 100% - 2rem);
-                  margin: 2rem auto 3rem;
-                  padding: 1.2rem;
-                  background: #f9fafb;
-                  border: 1px solid #e5e7eb;
-                  border-radius: 18px;
+                  margin: 1rem auto 2rem;
+                  padding: 1rem;
+                  background: var(--paper);
+                  border: 1px solid var(--line);
+                  border-radius: 4px;
                 }
 
                 body.has-index main.container {
@@ -189,15 +186,14 @@ module PrD
                   top: 0.9rem;
                   left: 0.9rem;
                   z-index: 1100;
-                  border: 1px solid #d1d5db;
-                  border-radius: 999px;
+                  border: 1px solid var(--line);
+                  border-radius: 4px;
                   background: var(--paper);
                   color: #0f172a;
                   padding: 0.45rem 0.8rem;
                   font-size: 0.9rem;
-                  font-weight: 600;
+                  font-weight: 500;
                   cursor: pointer;
-                  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
                 }
 
                 .report-index {
@@ -209,7 +205,7 @@ module PrD
                   width: var(--sidebar-width);
                   background: var(--paper);
                   border: 1px solid var(--line);
-                  border-radius: 14px;
+                  border-radius: 4px;
                   padding: 0.9rem 1rem;
                   overflow-y: auto;
                   transition: transform 0.18s ease, opacity 0.18s ease;
@@ -223,8 +219,7 @@ module PrD
 
                 .index-title {
                   margin: 0 0 0.6rem;
-                  font-family: "Saira", Georgia, serif;
-                  font-size: 1.15rem;
+                  font-size: 1rem;
                 }
 
                 .index-list {
@@ -252,26 +247,23 @@ module PrD
                 }
 
                 .context {
-                  font-family: "Saira", Georgia, serif;
-                  font-size: clamp(1.4rem, 2.8vw, 2rem);
-                  margin: 1.3rem 0 1rem;
-                  padding-bottom: 0.45rem;
-                  border-bottom: 2px solid var(--line);
+                  font-size: 1.25rem;
+                  margin: 1rem 0 0.75rem;
+                  padding-bottom: 0.35rem;
+                  border-bottom: 1px solid var(--line);
                 }
 
                 .test-card {
                   background: var(--paper);
                   border: 1px solid var(--line);
-                  border-radius: 16px;
-                  padding: 1rem 1.1rem;
+                  border-radius: 4px;
+                  padding: 0.9rem 1rem;
                   margin: 0 0 1rem;
-                  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
                 }
 
                 .test-title {
                   margin: 0 0 0.75rem;
-                  font-family: "Saira", Georgia, serif;
-                  font-size: 1.2rem;
+                  font-size: 1.1rem;
                 }
 
                 .line {
@@ -298,7 +290,7 @@ module PrD
                   margin: 0 0.18rem;
                   padding: 0.08rem 0.4rem;
                   border: 1px solid #d1d5db;
-                  border-radius: 999px;
+                  border-radius: 4px;
                   background: #f3f4f6;
                   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
                   font-size: 0.86rem;
@@ -324,8 +316,9 @@ module PrD
                 .status {
                   margin: 0.7rem 0 0.2rem;
                   padding: 0.55rem 0.7rem;
-                  border-radius: 10px;
-                  font-weight: 600;
+                  border-radius: 4px;
+                  border: 1px solid var(--line);
+                  font-weight: 500;
                 }
 
                 .status.success {
@@ -346,16 +339,16 @@ module PrD
                 .subject-block {
                   margin: 0.5rem 0 0.75rem;
                   padding: 0.75rem;
-                  border: 1px dashed #cbd5e1;
-                  border-radius: 12px;
-                  background: #f8fafc;
+                  border: 1px solid #d1d5db;
+                  border-radius: 4px;
+                  background: #fafafa;
                 }
 
                 .let-block {
                   margin: 0.5rem 0 0.75rem;
-                  border: 1px solid #cbd5e1;
-                  border-radius: 12px;
-                  background: #f8fafc;
+                  border: 1px solid #d1d5db;
+                  border-radius: 4px;
+                  background: #fff;
                 }
 
                 .let-toggle {
@@ -416,7 +409,7 @@ module PrD
                   margin-right: auto;
                   max-width: min(100%, 640px);
                   height: auto;
-                  border-radius: 10px;
+                  border-radius: 4px;
                   border: 1px solid #d1d5db;
                 }
 
@@ -427,7 +420,7 @@ module PrD
                   height: 540px;
                   margin-left: auto;
                   margin-right: auto;
-                  border-radius: 10px;
+                  border-radius: 4px;
                   border: 1px solid #d1d5db;
                   background: #fff;
                 }
@@ -435,10 +428,10 @@ module PrD
                 .result {
                   margin-top: 1.5rem;
                   padding: 0.9rem 1rem;
-                  border-radius: 12px;
+                  border-radius: 4px;
                   border: 1px solid var(--line);
                   background: #fff;
-                  font-size: 1.05rem;
+                  font-size: 1rem;
                 }
 
                 .result.success { color: var(--pass-fg); background: var(--pass-bg); }
@@ -455,7 +448,7 @@ module PrD
                 .code-block {
                   margin: 0.45rem 0 0.7rem;
                   border: 1px solid var(--line);
-                  border-radius: 10px;
+                  border-radius: 4px;
                   background: #fff;
                 }
 
@@ -468,7 +461,7 @@ module PrD
                   justify-content: space-between;
                   gap: 0.8rem;
                   font-size: 0.88rem;
-                  color: var(--text);
+                  color: var(--ink);
                 }
 
                 .code-toggle::-webkit-details-marker {
@@ -490,7 +483,6 @@ module PrD
                 .highlight {
                   margin: 0;
                   border-top: 1px solid var(--line);
-                  border-radius: 0 0 10px 10px;
                   overflow-x: auto;
                 }
 
