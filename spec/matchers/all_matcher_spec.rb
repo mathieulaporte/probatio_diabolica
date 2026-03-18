@@ -1,10 +1,12 @@
 describe 'All matcher' do
+  let(:even_predicate) { ->(n) { n.even? } }
+
   context 'when actual responds to all?' do
     context 'with only even numbers' do
       subject { [2, 4, 6, 8] }
 
       it 'passes when all elements satisfy the predicate' do
-        expect.to(all(->(n) { n.even? }))
+        expect.to(all(even_predicate))
       end
     end
 
@@ -12,7 +14,7 @@ describe 'All matcher' do
       subject { [2, 3, 4] }
 
       it 'supports not_to when at least one element fails the predicate' do
-        expect(subject).not_to(all(->(n) { n.even? }))
+        expect(subject).not_to(all(even_predicate))
       end
     end
   end

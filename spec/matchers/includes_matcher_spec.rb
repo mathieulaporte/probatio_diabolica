@@ -1,4 +1,6 @@
 describe 'Includes matcher' do
+  let(:fixtures) { File.join(Dir.pwd, 'spec/fixtures') }
+
   context 'supported inputs' do
     context 'with strings' do
       subject { 'probatio diabolica' }
@@ -17,33 +19,35 @@ describe 'Includes matcher' do
     end
 
     context 'with files' do
-      let(:fixtures) { File.join(Dir.pwd, 'spec/fixtures') }
       let(:path) { File.join(fixtures, 'includes_file.txt') }
       subject { File.open(path, 'rb') }
 
-      it 'works with files and rewinds the cursor' do
+      before do
         Dir.mkdir(fixtures) unless Dir.exist?(fixtures)
         File.write(path, "line 1\nline 2\nline 3\n")
+      end
 
-        begin
-          expect.to(includes('line 2'))
-          expect(subject.pos).to(eq(0))
-        ensure
-          subject.close
-        end
+      after do
+        subject.close unless subject.closed?
+      end
+
+      it 'works with files and rewinds the cursor' do
+        expect.to(includes('line 2'))
+        expect(subject.pos).to(eq(0))
       end
     end
 
     context 'with PDF::Reader' do
-      let(:fixtures) { File.join(Dir.pwd, 'spec/fixtures') }
       let(:pdf_path) { File.join(fixtures, 'includes_pdf.pdf') }
       subject { PDF::Reader.new(pdf_path) }
 
-      it 'works with PDF::Reader' do
+      before do
         require 'prawn'
         Dir.mkdir(fixtures) unless Dir.exist?(fixtures)
         Prawn::Document.generate(pdf_path) { text 'probatio pdf marker' }
+      end
 
+      it 'works with PDF::Reader' do
         expect.to(includes('pdf marker'))
       end
     end

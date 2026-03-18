@@ -18,13 +18,12 @@ describe 'MCP server' do
   end
 
   context 'when listing tools' do
-    subject { server.process_message({ 'id' => 1, 'method' => 'tools/list' }) }
+    let(:response) { server.process_message({ 'id' => 1, 'method' => 'tools/list' }) }
+    subject { response.dig(:result, :tools) }
 
     it 'lists run_specs tool' do
-      tools = subject.dig(:result, :tools)
-
-      expect(tools.length).to(eq(1))
-      expect(tools.first[:name]).to(eq('run_specs'))
+      expect(subject.length).to(eq(1))
+      expect(subject.first[:name]).to(eq('run_specs'))
     end
   end
 
@@ -39,7 +38,7 @@ describe 'MCP server' do
         }
       })
     end
-
+    
     it 'returns structured content' do
       expect(subject[:id]).to(eq(2))
       expect(subject.dig(:result, :structuredContent, :ok)).to(eq(true))

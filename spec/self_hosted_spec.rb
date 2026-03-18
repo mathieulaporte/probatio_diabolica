@@ -49,14 +49,39 @@ def build_tiny_png_file
   file
 end
 
+def build_formatter_io(formatter_class, mode: :verbose, serializers: {}, display_adapters: {})
+  io = StringIO.new
+  formatter = formatter_class.new(io:, serializers:, mode:, display_adapters:)
+  [formatter, io]
+end
+
+def run_runtime_with_formatter(formatter_class, spec_source, mode: :verbose, serializers: {}, display_adapters: {})
+  formatter, io = build_formatter_io(
+    formatter_class,
+    mode:,
+    serializers:,
+    display_adapters:
+  )
+  PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([spec_source])
+  io.rewind
+  io.read
+end
+
+def with_temp_spec_file(prefix, content)
+  spec_file = Tempfile.new([prefix, '_spec.rb'])
+  spec_file.write(content)
+  spec_file.flush
+  yield spec_file.path
+ensure
+  spec_file.close! if spec_file
+end
+
 CustomDisplayValue = Struct.new(:title, :body, keyword_init: true)
 
 describe 'PrD self-hosted reliability' do
   let(:simple_report) do
-    io = StringIO.new
-    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    report = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
       <<~SPEC
         describe 'Inner suite' do
           it 'passes eq' do
@@ -84,10 +109,8 @@ describe 'PrD self-hosted reliability' do
           pending 'later'
         end
       SPEC
-    ])
-
-    io.rewind
-    PrD::Code.new(source: io.read, language: 'shell')
+    )
+    PrD::Code.new(source: report, language: 'shell')
   end
 
   it 'reports pass/fail counts' do
@@ -103,10 +126,8 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'supports before and after hooks for each example' do
-    io = StringIO.new
-    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
       <<~SPEC
         describe 'Hooks suite' do
           before do
@@ -132,18 +153,13 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    io.rewind
-    output = io.read
+    )
     expect(output).to(includes('3 passed, 0 failed'))
   end
 
   it 'runs nested hooks in deterministic order' do
-    io = StringIO.new
-    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
       <<~SPEC
         describe 'Nested hooks suite' do
           before do
@@ -182,10 +198,7 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    io.rewind
-    output = io.read
+    )
     expect(output).to(includes('2 passed, 0 failed'))
   end
 
@@ -245,9 +258,7 @@ describe 'PrD self-hosted reliability' do
 
   context 'when CLI runs in synthetic mode' do
     subject do
-      spec_file = Tempfile.new(['prd_cli_synthetic', '_spec.rb'])
-      begin
-        spec_file.write(<<~SPEC)
+      with_temp_spec_file('prd_cli_synthetic', <<~SPEC) do |spec_path|
           describe 'CLI synthetic suite' do
             it 'passes' do
               expect(1).to(eq(1))
@@ -260,11 +271,7 @@ describe 'PrD self-hosted reliability' do
             pending 'later'
           end
         SPEC
-        spec_file.flush
-
-        capture_cli("bundle exec ruby bin/prd #{spec_file.path} --mode synthetic")
-      ensure
-        spec_file.close!
+        capture_cli("bundle exec ruby bin/prd #{spec_path} --mode synthetic")
       end
     end
 
@@ -284,20 +291,14 @@ describe 'PrD self-hosted reliability' do
 
   context 'when CLI runs in verbose mode' do
     subject do
-      spec_file = Tempfile.new(['prd_cli_verbose', '_spec.rb'])
-      begin
-        spec_file.write(<<~SPEC)
+      with_temp_spec_file('prd_cli_verbose', <<~SPEC) do |spec_path|
           describe 'CLI verbose suite' do
             it 'works' do
               expect(1).to(eq(1))
             end
           end
         SPEC
-        spec_file.flush
-
-        capture_cli("bundle exec ruby bin/prd #{spec_file.path} --mode verbose")
-      ensure
-        spec_file.close!
+        capture_cli("bundle exec ruby bin/prd #{spec_path} --mode verbose")
       end
     end
 
@@ -313,9 +314,7 @@ describe 'PrD self-hosted reliability' do
 
   context 'when CLI generates multiple formatter outputs with --out base path' do
     subject do
-      spec_file = Tempfile.new(['prd_cli_multi', '_spec.rb'])
-      begin
-        spec_file.write(<<~SPEC)
+      with_temp_spec_file('prd_cli_multi', <<~SPEC) do |spec_path|
           describe 'CLI multi formatter suite' do
             context 'index coverage' do
               it 'works' do
@@ -326,13 +325,11 @@ describe 'PrD self-hosted reliability' do
             end
           end
         SPEC
-        spec_file.flush
-
         Dir.mktmpdir('prd_multi_output') do |tmp_dir|
           output_base = File.join(tmp_dir, 'my_report')
           command = [
             'bundle exec ruby bin/prd',
-            Shellwords.escape(spec_file.path),
+            Shellwords.escape(spec_path),
             '-t html,json',
             '-t pdf',
             '--out',
@@ -356,8 +353,6 @@ describe 'PrD self-hosted reliability' do
             pdf: File.binread(pdf_path)
           }
         end
-      ensure
-        spec_file.close!
       end
     end
 
@@ -387,24 +382,20 @@ describe 'PrD self-hosted reliability' do
 
   context 'when --out points to a directory for json formatter' do
     subject do
-      spec_file = Tempfile.new(['prd_cli_out_dir', '_spec.rb'])
-      begin
-        spec_file.write(<<~SPEC)
+      with_temp_spec_file('prd_cli_out_dir', <<~SPEC) do |spec_path|
           describe 'CLI output dir suite' do
             it 'works' do
               expect(1).to(eq(1))
             end
           end
         SPEC
-        spec_file.flush
-
         Dir.mktmpdir('prd_out_dir') do |tmp_dir|
           out_dir = File.join(tmp_dir, 'reports')
           Dir.mkdir(out_dir)
 
           command = [
             'bundle exec ruby bin/prd',
-            Shellwords.escape(spec_file.path),
+            Shellwords.escape(spec_path),
             '-t json',
             '--out',
             Shellwords.escape(out_dir)
@@ -416,8 +407,6 @@ describe 'PrD self-hosted reliability' do
 
           { stdout:, stderr:, status:, json_path:, payload: }
         end
-      ensure
-        spec_file.close!
       end
     end
 
@@ -432,24 +421,20 @@ describe 'PrD self-hosted reliability' do
 
   context 'when --out points to a directory for simple formatter' do
     subject do
-      spec_file = Tempfile.new(['prd_cli_simple_out_dir', '_spec.rb'])
-      begin
-        spec_file.write(<<~SPEC)
+      with_temp_spec_file('prd_cli_simple_out_dir', <<~SPEC) do |spec_path|
           describe 'CLI simple output dir suite' do
             it 'works' do
               expect(1).to(eq(1))
             end
           end
         SPEC
-        spec_file.flush
-
         Dir.mktmpdir('prd_simple_out_dir') do |tmp_dir|
           out_dir = File.join(tmp_dir, 'reports')
           Dir.mkdir(out_dir)
 
           command = [
             'bundle exec ruby bin/prd',
-            Shellwords.escape(spec_file.path),
+            Shellwords.escape(spec_path),
             '--out',
             Shellwords.escape(out_dir)
           ].join(' ')
@@ -460,8 +445,6 @@ describe 'PrD self-hosted reliability' do
 
           { stdout:, stderr:, status:, report_path:, report: }
         end
-      ensure
-        spec_file.close!
       end
     end
 
@@ -475,10 +458,8 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'generates minimal valid HTML output' do
-    io = StringIO.new
-    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    html = run_runtime_with_formatter(
+      PrD::Formatters::HtmlFormatter,
       <<~SPEC
         describe 'HTML suite' do
           it 'works' do
@@ -486,10 +467,7 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    io.rewind
-    html = io.read
+    )
     expect(html).to(includes('<html>'))
     expect(html).to(includes('</html>'))
     expect(html).to(includes('<main class="container">'))
@@ -497,10 +475,8 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'adds an internal HTML index with context, test, and pending anchors' do
-    io = StringIO.new
-    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    html = run_runtime_with_formatter(
+      PrD::Formatters::HtmlFormatter,
       <<~SPEC
         describe 'HTML indexed suite' do
           context 'Context block' do
@@ -512,10 +488,7 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    io.rewind
-    html = io.read
+    )
     expect(html).to(includes('<nav class="report-index" aria-label="Report index">'))
     expect(html).to(includes('href="#ctx-1"'))
     expect(html).to(includes('href="#ctx-2"'))
@@ -528,10 +501,8 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'escapes HTML content in HtmlFormatter output' do
-    io = StringIO.new
-    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    html = run_runtime_with_formatter(
+      PrD::Formatters::HtmlFormatter,
       <<~SPEC
         describe '<script>alert(1)</script>' do
           it 'renders escaped content' do
@@ -539,19 +510,14 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    io.rewind
-    html = io.read
+    )
     expect(html).to(includes('&lt;script&gt;alert(1)&lt;/script&gt;'))
     expect(html).to(includes('&lt;b&gt;unsafe&lt;/b&gt;'))
   end
 
   it 'handles binary expectations in HtmlFormatter output' do
-    io = StringIO.new
-    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    html = run_runtime_with_formatter(
+      PrD::Formatters::HtmlFormatter,
       <<~SPEC
         describe 'HTML binary suite' do
           it 'renders binary safely' do
@@ -560,19 +526,14 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    io.rewind
-    html = io.read
+    )
     expect(html).to(includes('<html>'))
     expect(html).to(includes('<strong>1 passed, 0 failed</strong>'))
   end
 
   it 'renders syntax-highlighted code blocks in HtmlFormatter output' do
-    io = StringIO.new
-    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    html = run_runtime_with_formatter(
+      PrD::Formatters::HtmlFormatter,
       <<~SPEC
         describe 'HTML code suite' do
           let(:snippet) { PrD::Code.new(source: "def greet\\n  'hello'\\nend", language: 'ruby') }
@@ -582,10 +543,7 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    io.rewind
-    html = io.read
+    )
     valid =
       html.include?('class="code-block"') &&
       html.include?('class="code-toggle"') &&
@@ -596,10 +554,8 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'renders let code blocks in HtmlFormatter output' do
-    io = StringIO.new
-    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    html = run_runtime_with_formatter(
+      PrD::Formatters::HtmlFormatter,
       <<~SPEC
         describe 'HTML let code suite' do
           let(:page_html) { PrD::Code.new(source: "<main>\\n  <h1>Hello</h1>\\n</main>", language: 'html') }
@@ -609,10 +565,7 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    io.rewind
-    html = io.read
+    )
     valid =
       html.include?('<details class="let-block">') &&
       html.include?('<summary class="let-toggle">Let(:page_html)</summary>') &&
@@ -830,10 +783,8 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'produces structured JSON formatter output' do
-    io = StringIO.new
-    formatter = PrD::Formatters::JsonFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    json_payload = run_runtime_with_formatter(
+      PrD::Formatters::JsonFormatter,
       <<~SPEC
         describe 'JSON suite' do
           let(:value) { 1 }
@@ -843,10 +794,8 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    io.rewind
-    json = JSON.parse(io.read)
+    )
+    json = JSON.parse(json_payload)
 
     expect(json['format']).to(eq('prd-json-v1'))
     expect(json['summary']['passed']).to(eq(1))
@@ -857,10 +806,19 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'supports display adapters and let names in JsonFormatter output' do
-    io = StringIO.new
-    formatter = PrD::Formatters::JsonFormatter.new(
-      io:,
-      serializers: {},
+    spec_source = <<~SPEC
+      describe 'JSON adapter suite' do
+        let(:payload) { Time.utc(2024, 1, 1, 12, 0, 0) }
+        subject { payload }
+
+        it 'keeps custom display payloads structured' do
+          expect.to(eq(payload))
+        end
+      end
+    SPEC
+    json_payload = run_runtime_with_formatter(
+      PrD::Formatters::JsonFormatter,
+      spec_source,
       display_adapters: {
         Time => lambda do |value|
           {
@@ -870,22 +828,7 @@ describe 'PrD self-hosted reliability' do
         end
       }
     )
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
-      <<~SPEC
-        describe 'JSON adapter suite' do
-          let(:payload) { Time.utc(2024, 1, 1, 12, 0, 0) }
-          subject { payload }
-
-          it 'keeps custom display payloads structured' do
-            expect.to(eq(payload))
-          end
-        end
-      SPEC
-    ])
-
-    io.rewind
-    json = JSON.parse(io.read)
+    json = JSON.parse(json_payload)
     let_event = json['events'].find { |event| event['type'] == 'let' }
     subject_event = json['events'].find { |event| event['type'] == 'subject' }
     let_payload = let_event && let_event['value']
@@ -899,10 +842,8 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'serializes PrD::Code values in JsonFormatter output' do
-    io = StringIO.new
-    formatter = PrD::Formatters::JsonFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    json_payload = run_runtime_with_formatter(
+      PrD::Formatters::JsonFormatter,
       <<~SPEC
         describe 'JSON code suite' do
           let(:snippet) { PrD::Code.new(source: "def calc\\n  2\\nend", language: 'ruby') }
@@ -912,10 +853,8 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    io.rewind
-    json = JSON.parse(io.read)
+    )
+    json = JSON.parse(json_payload)
     expect_event = json['events'].find { |event| event['type'] == 'expect' }
     payload = expect_event && expect_event['value']
     valid =
@@ -948,10 +887,8 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'handles binary expectations in JsonFormatter output' do
-    io = StringIO.new
-    formatter = PrD::Formatters::JsonFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    json_payload = run_runtime_with_formatter(
+      PrD::Formatters::JsonFormatter,
       <<~SPEC
         describe 'JSON binary suite' do
           it 'renders binary safely' do
@@ -960,37 +897,32 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    io.rewind
-    json = JSON.parse(io.read)
+    )
+    json = JSON.parse(json_payload)
     expect(json['format']).to(eq('prd-json-v1'))
     expect(json['summary']['passed']).to(eq(1))
     expect(json['summary']['failed']).to(eq(0))
   end
 
   it 'reduces SimpleFormatter output in synthetic mode' do
-    io = StringIO.new
-    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {}, mode: :synthetic)
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
-      <<~SPEC
-        describe 'Simple synthetic suite' do
-          it 'passes eq' do
-            expect(1).to(eq(1))
-          end
-
-          it 'fails eq' do
-            expect(1).to(eq(2))
-          end
-
-          pending 'later'
+    spec_source = <<~SPEC
+      describe 'Simple synthetic suite' do
+        it 'passes eq' do
+          expect(1).to(eq(1))
         end
-      SPEC
-    ])
 
-    io.rewind
-    output = io.read
+        it 'fails eq' do
+          expect(1).to(eq(2))
+        end
+
+        pending 'later'
+      end
+    SPEC
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
+      spec_source,
+      mode: :synthetic
+    )
     expect(output).to(includes('PASS: passes eq'))
     expect(output).to(includes('FAIL: fails eq'))
     expect(output).to(includes('PENDING: later'))
@@ -1000,10 +932,8 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'prints the global summary once with nested describe blocks' do
-    io = StringIO.new
-    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
       <<~SPEC
         describe 'Outer suite' do
           describe 'Inner suite' do
@@ -1013,19 +943,14 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    io.rewind
-    output = io.read
+    )
     expect(output).to(includes('1 passed, 0 failed'))
     expect(output.scan(/passed,\s+0 failed/).length).to(eq(1))
   end
 
   it 'renders code blocks with language in SimpleFormatter output' do
-    io = StringIO.new
-    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
       <<~SPEC
         describe 'Simple code suite' do
           let(:snippet) { PrD::Code.new(source: "def format\\n  :ok\\nend", language: 'ruby') }
@@ -1035,10 +960,7 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    io.rewind
-    output = io.read
+    )
     valid = output.include?('Expect (ruby):') && output.include?('--- Code Block ---')
     expect(valid).to(eq(true))
   end
@@ -1083,10 +1005,19 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'supports display adapters for let and subject in SimpleFormatter output' do
-    io = StringIO.new
-    formatter = PrD::Formatters::SimpleFormatter.new(
-      io:,
-      serializers: {},
+    spec_source = <<~SPEC
+      describe 'Simple adapter suite' do
+        let(:payload) { Time.utc(2024, 1, 1, 12, 0, 0) }
+        subject { payload }
+
+        it 'renders adapter output' do
+          expect.to(eq(payload))
+        end
+      end
+    SPEC
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
+      spec_source,
       display_adapters: {
         Time => lambda do |value|
           {
@@ -1096,22 +1027,6 @@ describe 'PrD self-hosted reliability' do
         end
       }
     )
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
-      <<~SPEC
-        describe 'Simple adapter suite' do
-          let(:payload) { Time.utc(2024, 1, 1, 12, 0, 0) }
-          subject { payload }
-
-          it 'renders adapter output' do
-            expect.to(eq(payload))
-          end
-        end
-      SPEC
-    ])
-
-    io.rewind
-    output = io.read
     expect(output).to(includes('Let(:payload)'))
     expect(output).to(includes('heading:'))
     expect(output).to(includes('Captured at'))
@@ -1120,44 +1035,38 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'handles binary expectations in SimpleFormatter verbose output' do
-    io = StringIO.new
-    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {}, mode: :verbose)
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
-      <<~SPEC
-        describe 'Simple binary suite' do
-          it 'renders binary safely' do
-            bytes = "%PDF-1.3\\n\\xFF\\x00".b
-            expect(bytes).to(includes('%PDF-1.3'))
-          end
+    spec_source = <<~SPEC
+      describe 'Simple binary suite' do
+        it 'renders binary safely' do
+          bytes = "%PDF-1.3\\n\\xFF\\x00".b
+          expect(bytes).to(includes('%PDF-1.3'))
         end
-      SPEC
-    ])
-
-    io.rewind
-    output = io.read
+      end
+    SPEC
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
+      spec_source,
+      mode: :verbose
+    )
     expect(output).to(includes('1 passed, 0 failed'))
     expect(output).to(includes('Expect: %PDF-1.3'))
   end
 
   it 'reduces HtmlFormatter output in synthetic mode' do
-    io = StringIO.new
-    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {}, mode: :synthetic)
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
-      <<~SPEC
-        describe 'HTML synthetic suite' do
-          it 'works' do
-            expect(1).to(eq(1))
-          end
-
-          pending 'later'
+    spec_source = <<~SPEC
+      describe 'HTML synthetic suite' do
+        it 'works' do
+          expect(1).to(eq(1))
         end
-      SPEC
-    ])
 
-    io.rewind
-    html = io.read
+        pending 'later'
+      end
+    SPEC
+    html = run_runtime_with_formatter(
+      PrD::Formatters::HtmlFormatter,
+      spec_source,
+      mode: :synthetic
+    )
     expect(html).to(includes('<h3 class="test-title">works</h3>'))
     expect(html).to(includes("<div class='status success'>PASS</div>"))
     expect(html).to(includes('<h3 class="test-title">later</h3>'))
@@ -1239,23 +1148,21 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'produces compact JSON formatter output in synthetic mode' do
-    io = StringIO.new
-    formatter = PrD::Formatters::JsonFormatter.new(io:, serializers: {}, mode: :synthetic)
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
-      <<~SPEC
-        describe 'JSON synthetic suite' do
-          it 'works' do
-            expect(1).to(eq(1))
-          end
-
-          pending 'later'
+    spec_source = <<~SPEC
+      describe 'JSON synthetic suite' do
+        it 'works' do
+          expect(1).to(eq(1))
         end
-      SPEC
-    ])
 
-    io.rewind
-    json = JSON.parse(io.read)
+        pending 'later'
+      end
+    SPEC
+    json_payload = run_runtime_with_formatter(
+      PrD::Formatters::JsonFormatter,
+      spec_source,
+      mode: :synthetic
+    )
+    json = JSON.parse(json_payload)
     events = json['events']
 
     expect(json['summary']['passed']).to(eq(1))
@@ -1267,10 +1174,8 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'produces a valid PDF report with Prawn formatter' do
-    io = StringIO.new
-    formatter = PrD::Formatters::PdfFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    content = run_runtime_with_formatter(
+      PrD::Formatters::PdfFormatter,
       <<~SPEC
         describe 'PDF suite' do
           it 'works' do
@@ -1278,9 +1183,7 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    content = io.string
+    )
     expect(content.start_with?('%PDF-')).to(eq(true))
     expect(content.length > 100).to(eq(true))
     expect(content).to(includes('Index'))
@@ -1362,10 +1265,8 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'renders code blocks with language markers in PdfFormatter output' do
-    io = StringIO.new
-    formatter = PrD::Formatters::PdfFormatter.new(io:, serializers: {})
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+    content = run_runtime_with_formatter(
+      PrD::Formatters::PdfFormatter,
       <<~SPEC
         describe 'PDF code suite' do
           let(:snippet) { PrD::Code.new(source: "def pdf\\n  true\\nend", language: 'ruby') }
@@ -1375,9 +1276,7 @@ describe 'PrD self-hosted reliability' do
           end
         end
       SPEC
-    ])
-
-    content = io.string
+    )
     reader = PDF::Reader.new(StringIO.new(content))
     text = reader.pages.map(&:text).join("\n")
     valid = text.include?('Expect (ruby)') && text.include?('Be equal to (ruby)')
@@ -1394,22 +1293,20 @@ describe 'PrD self-hosted reliability' do
   end
 
   it 'produces a valid compact PDF report in synthetic mode' do
-    io = StringIO.new
-    formatter = PrD::Formatters::PdfFormatter.new(io:, serializers: {}, mode: :synthetic)
-
-    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
-      <<~SPEC
-        describe 'PDF synthetic suite' do
-          it 'works' do
-            expect(1).to(eq(1))
-          end
-
-          pending 'later'
+    spec_source = <<~SPEC
+      describe 'PDF synthetic suite' do
+        it 'works' do
+          expect(1).to(eq(1))
         end
-      SPEC
-    ])
 
-    content = io.string
+        pending 'later'
+      end
+    SPEC
+    content = run_runtime_with_formatter(
+      PrD::Formatters::PdfFormatter,
+      spec_source,
+      mode: :synthetic
+    )
     expect(content.start_with?('%PDF-')).to(eq(true))
     expect(content.length > 100).to(eq(true))
     expect(content).to(includes('Index'))

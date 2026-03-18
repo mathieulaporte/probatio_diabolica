@@ -1,9 +1,11 @@
 describe 'Eq matcher' do
+  let(:number_value) { 10 }
+
   context 'with primitive values' do
-    subject { 10 }
+    subject { number_value }
 
     it 'matches equal values' do
-      expect.to(eq(10))
+      expect.to(eq(number_value))
     end
 
     it 'supports not_to when values differ' do

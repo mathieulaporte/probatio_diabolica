@@ -2,12 +2,16 @@ require 'stringio'
 require './lib/pr_d'
 describe 'Simple example report' do
   context 'with basic expectations', model: 'codestral-2508' do
-    subject do
-      io = StringIO.new 
-      PrD::Runtime.new(formatter: PrD::Formatters::SimpleFormatter.new(io: , serializers: {}), output_dir: nil, config_file: nil).run([File.read('./examples/basics_spec.rb')])
+    before do
+      io = StringIO.new
+      formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {})
+      PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([File.read('./examples/basics_spec.rb')])
       io.rewind
-      io.read
+      @report = io.read
     end
+
+    subject { @report }
+
     it 'should use colors' do
       expect(subject).to satisfy("In this test output there is colors : green for success and red for failure")
     end
