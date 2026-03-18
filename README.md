@@ -319,16 +319,18 @@ In CLI usage:
 - selecting one formatter writes one output stream/file
 - selecting multiple formatters runs tests once and writes one file per formatter
 
-### Subject rendering policy (best effort)
+### Let/subject rendering policy (best effort)
 
-When you define a `subject`, each formatter tries to render it in the most useful way for its medium:
+When you define a `let` or `subject`, each formatter tries to render it in the most useful way for its medium:
 
 - `SimpleFormatter`:
   - renders readable text in terminal
+  - prints `Let(:name)` blocks to make fixture values explicit
   - for `Hash`/`Array` subjects, prints one key/index per line with nested indentation
   - for files, prints a textual representation (for example path, file preview for `.txt`)
   - for `Ferrum::Node`, prints a readable summary (`Ferrum::Node <tag#id.class> text="..."`) instead of the Ruby object id
 - `HtmlFormatter`:
+  - renders `let` values inside collapsed blocks (click to open)
   - renders text values directly
   - for `Hash`/`Array` subjects, renders nested key/value blocks for better readability
   - for `PrD::Code`, renders syntax-highlighted code blocks (Rouge) inside collapsible sections
@@ -343,6 +345,7 @@ When you define a `subject`, each formatter tries to render it in the most usefu
   - for `Ferrum::Node`, renders the same readable summary in the generated PDF text
 - `JsonFormatter`:
   - keeps a structured representation for machine processing
+  - includes `name` in `let` events when available
   - preserves nested `Hash`/`Array` structure in event payloads
   - for `PrD::Code`, emits a structured payload (`type: "code"`, `language`, `source`)
   - `File` values (images, PDFs, text files, etc.) are embedded as base64 payloads
@@ -350,6 +353,35 @@ When you define a `subject`, each formatter tries to render it in the most usefu
   - for `Ferrum::Node`, emits a structured payload (`type: "ferrum_node"`, `selector`, `text`, `html_preview`, `summary`)
 
 The goal is to preserve readability and report size while surfacing the richest representation each formatter can reasonably support.
+
+Detailed dedicated documentation:
+- `docs/let_subject_rendering.md` (rendering pipeline, adapter injection, formatter behavior, compatibility notes)
+
+### Inject custom display adapters
+
+You can inject custom display logic for domain objects that are not natively handled:
+
+```ruby
+formatter = PrD::Formatters::HtmlFormatter.new(
+  io: $stdout,
+  serializers: {},
+  display_adapters: {
+    MyDomainObject => lambda do |value|
+      {
+        title: value.name,
+        preview: PrD::Code.new(source: value.to_json, language: 'json')
+      }
+    end
+  }
+)
+```
+
+Rules:
+
+- adapter key (`MyDomainObject` above) can be a class/module, a symbol (duck-typing via `respond_to?`), or a predicate proc
+- adapter value must be callable
+- adapter output can reuse native display types (`String`, `Hash`, `Array`, `PrD::Code`, `File`, `PDF::Reader`, etc.)
+- adapters are applied before default formatter heuristics, so native rendering still applies to the transformed value
 
 ## Useful references in this repository
 

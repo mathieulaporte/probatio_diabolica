@@ -18,7 +18,7 @@ end
 
 def capture_cli(command)
   stdout, stderr, status = Open3.capture3(command)
-  [PrD::Code.new(source: stdout, language: 'bash'), stderr, status]
+  [PrD::Code.new(source: stdout, language: 'shell'), stderr, status]
 end
 
 def build_fake_ferrum_node(tag: 'button', id: 'save', classes: %w[btn primary], text: 'Save changes', html: nil)
@@ -48,6 +48,8 @@ def build_tiny_png_file
   file.flush
   file
 end
+
+CustomDisplayValue = Struct.new(:title, :body, keyword_init: true)
 
 describe 'PrD self-hosted reliability' do
   let(:simple_report) do
@@ -85,7 +87,7 @@ describe 'PrD self-hosted reliability' do
     ])
 
     io.rewind
-    io.read
+    PrD::Code.new(source: io.read, language: 'shell')
   end
 
   it 'reports pass/fail counts' do
@@ -525,9 +527,11 @@ describe 'PrD self-hosted reliability' do
     io.rewind
     html = io.read
     valid =
-      html.include?('<strong>Let:</strong>') &&
+      html.include?('<details class="let-block">') &&
+      html.include?('<summary class="let-toggle">Let(:page_html)</summary>') &&
       html.include?('class="code-language"') &&
-      html.include?('&lt;main&gt;')
+      html.include?('&lt;main&gt;') &&
+      !html.include?('<details class="let-block" open>')
     expect(valid).to(eq(true))
   end
 
@@ -765,6 +769,48 @@ describe 'PrD self-hosted reliability' do
     expect(json['events'].any? { |e| e['type'] == 'let' }).to(eq(true))
   end
 
+  it 'supports display adapters and let names in JsonFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::JsonFormatter.new(
+      io:,
+      serializers: {},
+      display_adapters: {
+        Time => lambda do |value|
+          {
+            heading: 'Captured at',
+            snippet: PrD::Code.new(source: value.utc.strftime('%Y-%m-%d %H:%M:%S UTC'), language: 'text')
+          }
+        end
+      }
+    )
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'JSON adapter suite' do
+          let(:payload) { Time.utc(2024, 1, 1, 12, 0, 0) }
+          subject { payload }
+
+          it 'keeps custom display payloads structured' do
+            expect.to(eq(payload))
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    json = JSON.parse(io.read)
+    let_event = json['events'].find { |event| event['type'] == 'let' }
+    subject_event = json['events'].find { |event| event['type'] == 'subject' }
+    let_payload = let_event && let_event['value']
+    subject_payload = subject_event && subject_event['value']
+
+    expect(let_event['name']).to(eq('payload'))
+    expect(let_payload['heading']).to(eq('Captured at'))
+    expect(let_payload.dig('snippet', 'type')).to(eq('code'))
+    expect(let_payload.dig('snippet', 'language')).to(eq('text'))
+    expect(subject_payload['heading']).to(eq('Captured at'))
+  end
+
   it 'serializes PrD::Code values in JsonFormatter output' do
     io = StringIO.new
     formatter = PrD::Formatters::JsonFormatter.new(io:, serializers: {})
@@ -949,6 +995,43 @@ describe 'PrD self-hosted reliability' do
     expect(output).to(includes('ready'))
   end
 
+  it 'supports display adapters for let and subject in SimpleFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::SimpleFormatter.new(
+      io:,
+      serializers: {},
+      display_adapters: {
+        Time => lambda do |value|
+          {
+            heading: 'Captured at',
+            snippet: PrD::Code.new(source: value.utc.strftime('%Y-%m-%d %H:%M:%S UTC'), language: 'text')
+          }
+        end
+      }
+    )
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'Simple adapter suite' do
+          let(:payload) { Time.utc(2024, 1, 1, 12, 0, 0) }
+          subject { payload }
+
+          it 'renders adapter output' do
+            expect.to(eq(payload))
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    output = io.read
+    expect(output).to(includes('Let(:payload)'))
+    expect(output).to(includes('heading:'))
+    expect(output).to(includes('Captured at'))
+    expect(output).to(includes('Code (text):'))
+    expect(output).to(includes('Subject'))
+  end
+
   it 'handles binary expectations in SimpleFormatter verbose output' do
     io = StringIO.new
     formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {}, mode: :verbose)
@@ -1041,6 +1124,31 @@ describe 'PrD self-hosted reliability' do
     expect(html).to(includes('<strong>metadata:</strong>'))
     expect(html).to(includes('<strong>status:</strong>'))
     expect(html).to(includes('ok'))
+  end
+
+  it 'supports display adapters for subject values in HtmlFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::HtmlFormatter.new(
+      io:,
+      serializers: {},
+      display_adapters: {
+        CustomDisplayValue => lambda do |value|
+          {
+            heading: value.title,
+            snippet: PrD::Code.new(source: value.body, language: 'html')
+          }
+        end
+      }
+    )
+
+    formatter.subject(CustomDisplayValue.new(title: 'Checkout', body: "<section>ok</section>"))
+    formatter.result(1, 0)
+    formatter.flush
+
+    html = io.string
+    expect(html).to(includes('<strong>heading:</strong>'))
+    expect(html).to(includes('Checkout'))
+    expect(html).to(includes('class="code-block"'))
   end
 
   it 'produces compact JSON formatter output in synthetic mode' do
@@ -1138,6 +1246,32 @@ describe 'PrD self-hosted reliability' do
     expect(text).to(includes('status:'))
     expect(text).to(includes('ok'))
     expect(content).to(includes('/Subtype /Image'))
+  end
+
+  it 'supports display adapters for subject values in PdfFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::PdfFormatter.new(
+      io:,
+      serializers: {},
+      display_adapters: {
+        CustomDisplayValue => lambda do |value|
+          {
+            heading: value.title,
+            snippet: PrD::Code.new(source: value.body, language: 'html')
+          }
+        end
+      }
+    )
+
+    formatter.subject(CustomDisplayValue.new(title: 'Checkout', body: "<section>ok</section>"))
+    formatter.result(1, 0)
+    formatter.flush
+
+    reader = PDF::Reader.new(StringIO.new(io.string))
+    text = reader.pages.map(&:text).join("\n")
+    expect(text).to(includes('heading:'))
+    expect(text).to(includes('Checkout'))
+    expect(text).to(includes('Language: html'))
   end
 
   it 'renders code blocks with language markers in PdfFormatter output' do

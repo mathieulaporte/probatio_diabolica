@@ -5,8 +5,8 @@ require 'rouge'
 module PrD
   module Formatters
     class HtmlFormatter < Formatter
-      def initialize(io: $stdout, serializers: {}, mode: :verbose)
-        super(io: io, serializers: serializers, mode: mode)
+      def initialize(io: $stdout, serializers: {}, mode: :verbose, display_adapters: {})
+        super(io: io, serializers: serializers, mode: mode, display_adapters: display_adapters)
         @content = +''
         @index_entries = []
         @anchor_counters = Hash.new(0)
@@ -52,9 +52,11 @@ module PrD
         @content << "<p class=\"line\"><strong>Justification:</strong> #{escape(justification)}</p>"
       end
 
-      def let(value)
+      def let(name_or_value, value = MISSING_VALUE)
         return if synthetic?
-        render_value_block('Let', value)
+        name, rendered_value = named_value_arguments(name_or_value, value)
+        label = name.nil? ? 'Let' : "Let(:#{name})"
+        render_collapsible_let_block(label, rendered_value)
       end
 
       def subject(subject)
@@ -318,6 +320,50 @@ module PrD
                   background: #f8fafc;
                 }
 
+                .let-block {
+                  margin: 0.5rem 0 0.75rem;
+                  border: 1px solid #cbd5e1;
+                  border-radius: 12px;
+                  background: #f8fafc;
+                }
+
+                .let-toggle {
+                  list-style: none;
+                  cursor: pointer;
+                  padding: 0.62rem 0.8rem;
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  gap: 0.8rem;
+                  font-size: 0.9rem;
+                  font-weight: 600;
+                  color: #0f172a;
+                }
+
+                .let-toggle::-webkit-details-marker {
+                  display: none;
+                }
+
+                .let-toggle::after {
+                  content: 'Open';
+                  color: var(--muted);
+                  font-size: 0.76rem;
+                  letter-spacing: 0.03em;
+                  text-transform: uppercase;
+                }
+
+                .let-block[open] .let-toggle::after {
+                  content: 'Close';
+                }
+
+                .let-content {
+                  padding: 0 0.75rem 0.75rem;
+                }
+
+                .let-content .subject-block {
+                  margin: 0;
+                }
+
                 .nested-key {
                   margin: 0.32rem 0 0.15rem;
                   padding-left: calc(var(--nest-depth, 0) * 1rem);
@@ -535,71 +581,79 @@ module PrD
         end
       end
 
-      def render_value_block(label, value)
+      def render_collapsible_let_block(label, value)
+        @content << '<details class="let-block">'
+        @content << "<summary class=\"let-toggle\">#{escape(label)}</summary>"
+        @content << '<div class="let-content">'
+        render_value_block(label, value, show_label: false)
+        @content << '</div>'
+        @content << '</details>'
+      end
+
+      def render_value_block(label, value, show_label: true)
+        node = display_node(value)
         @content << '<div class="subject-block">'
-        if inline_value?(value)
-          @content << "<p class=\"line\"><strong>#{escape(label)}:</strong> #{escape(serialize(value).to_s)}</p>"
+        if inline_node?(node)
+          if show_label
+            @content << "<p class=\"line\"><strong>#{escape(label)}:</strong> #{escape(node[:text].to_s)}</p>"
+          else
+            @content << "<p class=\"line\">#{escape(node[:text].to_s)}</p>"
+          end
         else
-          @content << "<p class=\"line\"><strong>#{escape(label)}:</strong></p>"
-          render_nested_subject_value(value, depth: 0)
+          @content << "<p class=\"line\"><strong>#{escape(label)}:</strong></p>" if show_label
+          render_nested_subject_node(node, depth: 0)
         end
         @content << '</div>'
       end
 
-      def render_nested_subject_value(value, depth:)
-        case value
-        when Hash
-          if value.empty?
+      def render_nested_subject_node(node, depth:)
+        case node[:type]
+        when :map
+          entries = node[:entries] || []
+          if entries.empty?
             @content << nested_value_line('{}', depth:)
             return
           end
 
-          value.each do |key, nested_value|
-            @content << nested_key_line("#{serialize(key)}:", depth:)
-            render_nested_subject_value(nested_value, depth: depth + 1)
+          entries.each do |entry|
+            @content << nested_key_line("#{entry[:label]}:", depth:)
+            render_nested_subject_node(entry[:value], depth: depth + 1)
           end
-        when Array
-          if value.empty?
+        when :list
+          items = node[:items] || []
+          if items.empty?
             @content << nested_value_line('[]', depth:)
             return
           end
 
-          value.each_with_index do |entry, index|
+          items.each_with_index do |entry, index|
             @content << nested_key_line("[#{index}]:", depth:)
-            render_nested_subject_value(entry, depth: depth + 1)
+            render_nested_subject_node(entry, depth: depth + 1)
           end
         else
-          render_leaf_subject_value(value, depth:)
+          render_leaf_subject_node(node, depth:)
         end
       end
 
-      def render_leaf_subject_value(value, depth:)
-        if code_object?(value)
-          @content << %(<div class="nested-block" style="--nest-depth: #{depth};">#{render_code_block(value)}</div>)
-          return
-        end
-
-        if image_file?(value)
-          image_path = file_path(value)
+      def render_leaf_subject_node(node, depth:)
+        case node[:type]
+        when :code
+          code = PrD::Code.new(source: node[:source], language: node[:language])
+          @content << %(<div class="nested-block" style="--nest-depth: #{depth};">#{render_code_block(code)}</div>)
+        when :image
+          image_path = node[:path]
           @content << nested_value_line("Image file: #{image_path}", depth:)
           @content << %(<img src="#{image_data_uri(image_path)}" alt="subject image" class="subject-image nested-block" style="--nest-depth: #{depth};" />)
-          return
-        end
-
-        if pdf_file?(value)
-          pdf_path = file_path(value)
+        when :pdf_file
+          pdf_path = node[:path]
           @content << nested_value_line("PDF file: #{pdf_path}", depth:)
           @content << %(<embed src="#{pdf_data_uri(pdf_path)}" type="application/pdf" class="subject-pdf nested-block" style="--nest-depth: #{depth};" />)
-          return
-        end
-
-        if pdf_reader?(value)
+        when :pdf_reader
           @content << nested_value_line('PDF::Reader value', depth:)
-          @content << %(<embed src="#{pdf_reader_data_uri(value)}" type="application/pdf" class="subject-pdf nested-block" style="--nest-depth: #{depth};" />)
-          return
+          @content << %(<embed src="#{pdf_reader_data_uri(node[:reader])}" type="application/pdf" class="subject-pdf nested-block" style="--nest-depth: #{depth};" />)
+        else
+          @content << nested_value_line(node[:text].to_s, depth:)
         end
-
-        @content << nested_value_line(serialize(value).to_s, depth:)
       end
 
       def nested_key_line(key, depth:)
@@ -610,13 +664,8 @@ module PrD
         %(<p class="line nested-value" style="--nest-depth: #{depth};">#{escape(value)}</p>)
       end
 
-      def inline_value?(value)
-        !code_object?(value) &&
-          !value.is_a?(Hash) &&
-          !value.is_a?(Array) &&
-          !image_file?(value) &&
-          !pdf_file?(value) &&
-          !pdf_reader?(value)
+      def inline_node?(node)
+        node[:type] == :text
       end
 
       def render_code_block(code)
@@ -656,29 +705,15 @@ module PrD
         value.to_s.encode('UTF-8', invalid: :replace, undef: :replace, replace: '?')
       end
 
-      def image_file?(value)
-        path = file_path(value)
-        !path.nil? && path.match?(/\.(png|jpe?g)\z/i)
-      end
-
       def image_data_uri(path)
         mime_type = path.downcase.end_with?('.png') ? 'image/png' : 'image/jpeg'
         encoded = Base64.strict_encode64(File.binread(path))
         "data:#{mime_type};base64,#{encoded}"
       end
 
-      def pdf_file?(value)
-        path = file_path(value)
-        !path.nil? && path.match?(/\.pdf\z/i)
-      end
-
       def pdf_data_uri(path)
         encoded = Base64.strict_encode64(File.binread(path))
         "data:application/pdf;base64,#{encoded}"
-      end
-
-      def pdf_reader?(value)
-        defined?(PDF::Reader) && value.is_a?(PDF::Reader)
       end
 
       def pdf_reader_data_uri(reader)
@@ -697,16 +732,6 @@ module PrD
         raise ArgumentError, 'Unable to extract PDF bytes from PDF::Reader subject.' unless pdf_content
 
         "data:application/pdf;base64,#{Base64.strict_encode64(pdf_content)}"
-      end
-
-      def file_path(value)
-        return value.path if value.is_a?(File)
-        return nil unless value.respond_to?(:path)
-
-        path = value.path
-        path.is_a?(String) && !path.empty? ? path : nil
-      rescue StandardError
-        nil
       end
     end
   end

@@ -4,8 +4,8 @@ require 'base64'
 module PrD
   module Formatters
     class JsonFormatter < Formatter
-      def initialize(io: $stdout, serializers: {}, mode: :verbose)
-        super(io: io, serializers: serializers, mode: mode)
+      def initialize(io: $stdout, serializers: {}, mode: :verbose, display_adapters: {})
+        super(io: io, serializers: serializers, mode: mode, display_adapters: display_adapters)
         @events = []
         @summary = { passed: 0, failed: 0 }
       end
@@ -52,9 +52,12 @@ module PrD
         add_event(type: 'justification', message: justification)
       end
 
-      def let(value)
+      def let(name_or_value, value = MISSING_VALUE)
         return if synthetic?
-        add_event(type: 'let', value: serialize(value))
+        name, rendered_value = named_value_arguments(name_or_value, value)
+        payload = { value: serialize(rendered_value) }
+        payload[:name] = name.to_s unless name.nil?
+        add_event(type: 'let', **payload)
       end
 
       def pending(description = nil)
@@ -114,6 +117,8 @@ module PrD
       end
 
       def serialize(value)
+        value = apply_display_adapter(value)
+
         serializer = @serializers[value.class]
         return serializer.call(value) if serializer
 

@@ -5,8 +5,8 @@ module PrD
 
       INDENT = '│  '.freeze
 
-      def initialize(io: $stdout, serializers: {}, mode: :verbose)
-        super(io: io, serializers: serializers, mode: mode)
+      def initialize(io: $stdout, serializers: {}, mode: :verbose, display_adapters: {})
+        super(io: io, serializers: serializers, mode: mode, display_adapters: display_adapters)
       end
 
       def context(message)
@@ -41,13 +41,18 @@ module PrD
         output("Justification: #{justification}", :white, indent: 1)
       end
 
-      def let(value)
+      def let(name_or_value, value = MISSING_VALUE)
+        return if synthetic?
+        name, rendered_value = named_value_arguments(name_or_value, value)
+        label = name.nil? ? 'Let' : "Let(:#{name})"
+        title(label)
+        render_display_node(display_node(rendered_value), color: :white, indent: 1)
       end
 
       def subject(subject)
         return if synthetic?
         title('Subject')
-        render_structured_subject_value(subject, color: :white, indent: 1)
+        render_display_node(display_node(subject), color: :white, indent: 1)
       end
 
       def pending(description = nil)
@@ -176,64 +181,42 @@ module PrD
         end
       end
 
-      def render_structured_subject_value(value, color:, indent:)
-        if code_object?(value)
-          output("Code (#{value.language}):", color, indent: indent)
-          output(value.source, color, indent: indent + 1)
-          return
-        end
-
-        if value.is_a?(Hash)
-          if value.empty?
+      def render_display_node(node, color:, indent:)
+        case node[:type]
+        when :code
+          output("Code (#{node[:language]}):", color, indent: indent)
+          output(node[:source], color, indent: indent + 1)
+        when :map
+          entries = node[:entries] || []
+          if entries.empty?
             output('{}', color, indent: indent)
             return
           end
 
-          value.each do |key, nested_value|
-            output("#{serialize(key)}:", color, indent: indent)
-            render_structured_subject_value(nested_value, color: color, indent: indent + 1)
+          entries.each do |entry|
+            output("#{entry[:label]}:", color, indent: indent)
+            render_display_node(entry[:value], color: color, indent: indent + 1)
           end
-          return
-        end
-
-        if value.is_a?(Array)
-          if value.empty?
+        when :list
+          items = node[:items] || []
+          if items.empty?
             output('[]', color, indent: indent)
             return
           end
 
-          value.each_with_index do |entry, index|
+          items.each_with_index do |entry, index|
             output("[#{index}]:", color, indent: indent)
-            render_structured_subject_value(entry, color: color, indent: indent + 1)
+            render_display_node(entry, color: color, indent: indent + 1)
           end
-          return
+        when :image
+          output("Image file: #{node[:path]}", color, indent: indent)
+        when :pdf_file
+          output("PDF file: #{node[:path]}", color, indent: indent)
+        when :pdf_reader
+          output('PDF::Reader value', color, indent: indent)
+        else
+          output(node[:text], color, indent: indent)
         end
-
-        image_path = image_file_path(value)
-        unless image_path.nil?
-          output("Image file: #{image_path}", color, indent: indent)
-          return
-        end
-
-        output(value, color, indent: indent)
-      end
-
-      def image_file_path(value)
-        path = file_path(value)
-        return nil if path.nil?
-        return nil unless path.match?(/\.(png|jpe?g)\z/i)
-
-        path
-      end
-
-      def file_path(value)
-        return value.path if value.is_a?(File)
-        return nil unless value.respond_to?(:path)
-
-        path = value.path
-        path.is_a?(String) && !path.empty? ? path : nil
-      rescue StandardError
-        nil
       end
 
       def indented_message(message, indent_incr: 0)

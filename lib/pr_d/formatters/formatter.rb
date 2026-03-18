@@ -2,13 +2,15 @@ module PrD
   module Formatters
     class Formatter
       SUPPORTED_MODES = %i[verbose synthetic].freeze
+      MISSING_VALUE = Object.new
 
-      def initialize(io: $stdout, serializers: {}, mode: :verbose)
+      def initialize(io: $stdout, serializers: {}, mode: :verbose, display_adapters: {})
         @io = io
         @serializers = serializers
         @level = 0
         @mode = normalize_mode(mode)
         @current_test_title = nil
+        @display_adapters = normalize_display_adapters(display_adapters)
       end
 
       def title(message)
@@ -41,6 +43,14 @@ module PrD
 
       def subject(subject)
         raise NotImplementedError, "#{self.class} must implement #subject"
+      end
+
+      def register_display_adapter(matcher, callable = nil, &block)
+        adapter = callable || block
+        raise ArgumentError, 'Display adapter must be callable.' unless adapter.respond_to?(:call)
+
+        @display_adapters << [matcher, adapter]
+        self
       end
 
       def pending(description = nil)
@@ -92,6 +102,7 @@ module PrD
       end
 
       def serialize(value)
+        value = apply_display_adapter(value)
         serializer = @serializers[value.class]
         return serializer.call(value) if serializer
         return ferrum_node_summary(value) if ferrum_node?(value)
@@ -233,6 +244,159 @@ module PrD
 
       def blank_text?(value)
         value.nil? || value.to_s.strip.empty?
+      end
+
+      def named_value_arguments(name_or_value, value)
+        return [nil, name_or_value] if value.equal?(MISSING_VALUE)
+
+        [name_or_value, value]
+      end
+
+      def display_node(value, seen: {})
+        resolved = apply_display_adapter(value)
+
+        if code_object?(resolved)
+          return {
+            type: :code,
+            language: resolved.language.to_s,
+            source: resolved.source.to_s
+          }
+        end
+
+        image_path = display_image_path(resolved)
+        return { type: :image, path: image_path } unless image_path.nil?
+
+        pdf_path = display_pdf_path(resolved)
+        return { type: :pdf_file, path: pdf_path } unless pdf_path.nil?
+
+        if display_pdf_reader?(resolved)
+          return { type: :pdf_reader, reader: resolved }
+        end
+
+        if resolved.is_a?(Hash)
+          return { type: :text, text: '[Circular reference]' } if circular_reference?(resolved, seen)
+
+          begin
+            entries = resolved.map do |key, entry_value|
+              { label: serialize(key).to_s, value: display_node(entry_value, seen: seen) }
+            end
+          ensure
+            seen.delete(resolved.object_id)
+          end
+
+          return { type: :map, entries: entries }
+        end
+
+        if resolved.is_a?(Array)
+          return { type: :text, text: '[Circular reference]' } if circular_reference?(resolved, seen)
+
+          begin
+            items = resolved.map { |entry| display_node(entry, seen: seen) }
+          ensure
+            seen.delete(resolved.object_id)
+          end
+
+          return { type: :list, items: items }
+        end
+
+        { type: :text, text: serialize(resolved).to_s }
+      end
+
+      def display_file_path(value)
+        return value.path if value.is_a?(File)
+        return nil unless value.respond_to?(:path)
+
+        path = value.path
+        path.is_a?(String) && !path.empty? ? path : nil
+      rescue StandardError
+        nil
+      end
+
+      def display_image_path(value)
+        path = display_file_path(value)
+        return nil if path.nil?
+        return nil unless path.match?(/\.(png|jpe?g)\z/i)
+
+        path
+      end
+
+      def display_pdf_path(value)
+        path = display_file_path(value)
+        return nil if path.nil?
+        return nil unless path.match?(/\.pdf\z/i)
+
+        path
+      end
+
+      def display_pdf_reader?(value)
+        defined?(PDF::Reader) && value.is_a?(PDF::Reader)
+      end
+
+      def apply_display_adapter(value)
+        adapter = find_display_adapter(value)
+        return value if adapter.nil?
+
+        if adapter.arity.abs >= 2
+          adapter.call(value, self)
+        else
+          adapter.call(value)
+        end
+      end
+
+      def find_display_adapter(value)
+        @display_adapters.each do |matcher, adapter|
+          return adapter if display_matcher_matches?(matcher, value)
+        end
+
+        nil
+      end
+
+      def display_matcher_matches?(matcher, value)
+        case matcher
+        when Symbol
+          value.respond_to?(matcher)
+        when Proc
+          matcher.call(value)
+        else
+          matcher === value
+        end
+      rescue StandardError
+        false
+      end
+
+      def normalize_display_adapters(display_adapters)
+        return [] if display_adapters.nil?
+
+        entries =
+          if display_adapters.is_a?(Hash)
+            display_adapters.to_a
+          elsif display_adapters.is_a?(Array)
+            display_adapters
+          else
+            raise ArgumentError, '`display_adapters` must be a Hash or an Array of [matcher, adapter].'
+          end
+
+        entries.map do |entry|
+          matcher, adapter =
+            if entry.is_a?(Array) && entry.length == 2
+              entry
+            else
+              raise ArgumentError, '`display_adapters` entries must be [matcher, adapter].'
+            end
+
+          raise ArgumentError, 'Display adapter matcher is required.' if matcher.nil?
+          raise ArgumentError, 'Display adapter must be callable.' unless adapter.respond_to?(:call)
+
+          [matcher, adapter]
+        end
+      end
+
+      def circular_reference?(value, seen)
+        object_id = value.object_id
+        return true if seen.key?(object_id)
+
+        seen[object_id] = true
+        false
       end
     end
   end

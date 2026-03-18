@@ -15,8 +15,8 @@ module PrD
         border: 'E5E7EB'
       }.freeze
 
-      def initialize(io: $stdout, serializers: {}, mode: :verbose)
-        super(io: io, serializers: serializers, mode: mode)
+      def initialize(io: $stdout, serializers: {}, mode: :verbose, display_adapters: {})
+        super(io: io, serializers: serializers, mode: mode, display_adapters: display_adapters)
         @events = []
         @summary = { passed: 0, failed: 0 }
         @index_entries = []
@@ -69,13 +69,18 @@ module PrD
         add_event(:justification, message: "Justification: #{justification}", level: @level + 1)
       end
 
-      def let(value)
+      def let(name_or_value, value = MISSING_VALUE)
+        return if synthetic?
+        name, rendered_value = named_value_arguments(name_or_value, value)
+        label = name.nil? ? 'Let' : "Let(:#{name})"
+        add_event(:subject, message: label, level: @level)
+        append_subject_node(display_node(rendered_value), level: @level + 1)
       end
 
       def subject(subject)
         return if synthetic?
         add_event(:subject, message: 'Subject', level: @level)
-        append_subject_value(subject, level: @level + 1)
+        append_subject_node(display_node(subject), level: @level + 1)
       end
 
       def pending(description = nil)
@@ -363,63 +368,44 @@ module PrD
         "#{prefix}-#{@anchor_counters[prefix]}"
       end
 
-      def image_file?(value)
-        path = file_path(value)
-        !path.nil? && path.match?(/\.(png|jpe?g)\z/i)
-      end
-
-      def file_path(value)
-        return value.path if value.is_a?(File)
-        return nil unless value.respond_to?(:path)
-
-        path = value.path
-        path.is_a?(String) && !path.empty? ? path : nil
-      rescue StandardError
-        nil
-      end
-
-      def append_subject_value(value, level:, key_label: nil)
+      def append_subject_node(node, level:, key_label: nil)
         add_event(:detail, message: "#{key_label}:", level:) unless key_label.nil?
         target_level = key_label.nil? ? level : level + 1
 
-        if code_object?(value)
-          add_event(:code_header, message: "Language: #{value.language}", level: target_level)
-          add_event(:code_block, message: value.source, level: target_level, language: value.language)
-          return
-        end
-
-        if value.is_a?(Hash)
-          if value.empty?
+        case node[:type]
+        when :code
+          add_event(:code_header, message: "Language: #{node[:language]}", level: target_level)
+          add_event(:code_block, message: node[:source], level: target_level, language: node[:language])
+        when :map
+          entries = node[:entries] || []
+          if entries.empty?
             add_event(:detail, message: '{}', level: target_level)
             return
           end
 
-          value.each do |entry_key, entry_value|
-            append_subject_value(entry_value, level: target_level, key_label: serialize(entry_key).to_s)
+          entries.each do |entry|
+            append_subject_node(entry[:value], level: target_level, key_label: entry[:label].to_s)
           end
-          return
-        end
-
-        if value.is_a?(Array)
-          if value.empty?
+        when :list
+          items = node[:items] || []
+          if items.empty?
             add_event(:detail, message: '[]', level: target_level)
             return
           end
 
-          value.each_with_index do |entry, index|
-            append_subject_value(entry, level: target_level, key_label: "[#{index}]")
+          items.each_with_index do |entry, index|
+            append_subject_node(entry, level: target_level, key_label: "[#{index}]")
           end
-          return
+        when :image
+          add_event(:detail, message: "Image file: #{node[:path]}", level: target_level)
+          add_event(:subject_image, message: node[:path], level: target_level)
+        when :pdf_file
+          add_event(:detail, message: "PDF file: #{node[:path]}", level: target_level)
+        when :pdf_reader
+          add_event(:detail, message: 'PDF::Reader value', level: target_level)
+        else
+          add_event(:detail, message: node[:text].to_s, level: target_level)
         end
-
-        if image_file?(value)
-          image_path = file_path(value)
-          add_event(:detail, message: "Image file: #{image_path}", level: target_level)
-          add_event(:subject_image, message: image_path, level: target_level)
-          return
-        end
-
-        add_event(:detail, message: serialize(value).to_s, level: target_level)
       end
 
       def render_image(document, path, level:)

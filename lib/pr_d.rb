@@ -120,7 +120,14 @@ module PrD
     def let(name, &block)
       block_result = block.call
 
-      @formatter.let(block_result) if @verbose
+      if @verbose
+        formatter_let_arity = @formatter.method(:let).arity
+        if formatter_let_arity == 1
+          @formatter.let(block_result)
+        else
+          @formatter.let(name, block_result)
+        end
+      end
 
       instance_variable_set("@#{name}", block_result)
       define_singleton_method(name) { block_result }
