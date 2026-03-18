@@ -318,6 +318,20 @@ module PrD
                   background: #f8fafc;
                 }
 
+                .nested-key {
+                  margin: 0.32rem 0 0.15rem;
+                  padding-left: calc(var(--nest-depth, 0) * 1rem);
+                }
+
+                .nested-value {
+                  margin: 0.22rem 0 0.5rem;
+                  padding-left: calc(var(--nest-depth, 0) * 1rem);
+                }
+
+                .nested-block {
+                  margin-left: calc(var(--nest-depth, 0) * 1rem);
+                }
+
                 .subject-image {
                   margin-top: 0.55rem;
                   display: block;
@@ -523,21 +537,86 @@ module PrD
 
       def render_value_block(label, value)
         @content << '<div class="subject-block">'
-        if code_object?(value)
-          @content << "<p class=\"line\"><strong>#{escape(label)}:</strong></p>"
-          @content << render_code_block(value)
-        else
+        if inline_value?(value)
           @content << "<p class=\"line\"><strong>#{escape(label)}:</strong> #{escape(serialize(value).to_s)}</p>"
+        else
+          @content << "<p class=\"line\"><strong>#{escape(label)}:</strong></p>"
+          render_nested_subject_value(value, depth: 0)
+        end
+        @content << '</div>'
+      end
+
+      def render_nested_subject_value(value, depth:)
+        case value
+        when Hash
+          if value.empty?
+            @content << nested_value_line('{}', depth:)
+            return
+          end
+
+          value.each do |key, nested_value|
+            @content << nested_key_line("#{serialize(key)}:", depth:)
+            render_nested_subject_value(nested_value, depth: depth + 1)
+          end
+        when Array
+          if value.empty?
+            @content << nested_value_line('[]', depth:)
+            return
+          end
+
+          value.each_with_index do |entry, index|
+            @content << nested_key_line("[#{index}]:", depth:)
+            render_nested_subject_value(entry, depth: depth + 1)
+          end
+        else
+          render_leaf_subject_value(value, depth:)
+        end
+      end
+
+      def render_leaf_subject_value(value, depth:)
+        if code_object?(value)
+          @content << %(<div class="nested-block" style="--nest-depth: #{depth};">#{render_code_block(value)}</div>)
+          return
         end
 
         if image_file?(value)
-          @content << "<img src=\"#{image_data_uri(value.path)}\" alt=\"#{escape(label)} image\" class=\"subject-image\" />"
-        elsif pdf_file?(value)
-          @content << "<embed src=\"#{pdf_data_uri(value.path)}\" type=\"application/pdf\" class=\"subject-pdf\" />"
-        elsif pdf_reader?(value)
-          @content << "<embed src=\"#{pdf_reader_data_uri(value)}\" type=\"application/pdf\" class=\"subject-pdf\" />"
+          image_path = file_path(value)
+          @content << nested_value_line("Image file: #{image_path}", depth:)
+          @content << %(<img src="#{image_data_uri(image_path)}" alt="subject image" class="subject-image nested-block" style="--nest-depth: #{depth};" />)
+          return
         end
-        @content << '</div>'
+
+        if pdf_file?(value)
+          pdf_path = file_path(value)
+          @content << nested_value_line("PDF file: #{pdf_path}", depth:)
+          @content << %(<embed src="#{pdf_data_uri(pdf_path)}" type="application/pdf" class="subject-pdf nested-block" style="--nest-depth: #{depth};" />)
+          return
+        end
+
+        if pdf_reader?(value)
+          @content << nested_value_line('PDF::Reader value', depth:)
+          @content << %(<embed src="#{pdf_reader_data_uri(value)}" type="application/pdf" class="subject-pdf nested-block" style="--nest-depth: #{depth};" />)
+          return
+        end
+
+        @content << nested_value_line(serialize(value).to_s, depth:)
+      end
+
+      def nested_key_line(key, depth:)
+        %(<p class="line nested-key" style="--nest-depth: #{depth};"><strong>#{escape(key)}</strong></p>)
+      end
+
+      def nested_value_line(value, depth:)
+        %(<p class="line nested-value" style="--nest-depth: #{depth};">#{escape(value)}</p>)
+      end
+
+      def inline_value?(value)
+        !code_object?(value) &&
+          !value.is_a?(Hash) &&
+          !value.is_a?(Array) &&
+          !image_file?(value) &&
+          !pdf_file?(value) &&
+          !pdf_reader?(value)
       end
 
       def render_code_block(code)
@@ -578,7 +657,8 @@ module PrD
       end
 
       def image_file?(value)
-        value.is_a?(File) && value.path.match?(/\.(png|jpe?g)\z/i)
+        path = file_path(value)
+        !path.nil? && path.match?(/\.(png|jpe?g)\z/i)
       end
 
       def image_data_uri(path)
@@ -588,7 +668,8 @@ module PrD
       end
 
       def pdf_file?(value)
-        value.is_a?(File) && value.path.match?(/\.pdf\z/i)
+        path = file_path(value)
+        !path.nil? && path.match?(/\.pdf\z/i)
       end
 
       def pdf_data_uri(path)
@@ -616,6 +697,16 @@ module PrD
         raise ArgumentError, 'Unable to extract PDF bytes from PDF::Reader subject.' unless pdf_content
 
         "data:application/pdf;base64,#{Base64.strict_encode64(pdf_content)}"
+      end
+
+      def file_path(value)
+        return value.path if value.is_a?(File)
+        return nil unless value.respond_to?(:path)
+
+        path = value.path
+        path.is_a?(String) && !path.empty? ? path : nil
+      rescue StandardError
+        nil
       end
     end
   end

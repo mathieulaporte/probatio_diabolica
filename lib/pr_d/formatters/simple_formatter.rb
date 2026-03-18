@@ -47,12 +47,7 @@ module PrD
       def subject(subject)
         return if synthetic?
         title('Subject')
-        if code_object?(subject)
-          output("Code (#{subject.language}):", :white, indent: 1)
-          output(subject.source, :white, indent: 2)
-        else
-          output(subject, :white, indent: 1)
-        end
+        render_structured_subject_value(subject, color: :white, indent: 1)
       end
 
       def pending(description = nil)
@@ -70,7 +65,7 @@ module PrD
           output("Expect (#{expectation.language}):", :white, indent: 1)
           output(expectation.source, :white, indent: 2)
         else
-          output("Expect: #{expectation}", :white, indent: 1)
+          output("Expect: #{serialize(expectation)}", :white, indent: 1)
         end
       end
 
@@ -121,7 +116,11 @@ module PrD
       private
 
       def output(message, color = :default, figure: nil, indent: 0)
-        colored_message = "#{COLOR_MAPPING[color]}#{message}#{COLOR_MAPPING[:default]}"
+        if ferrum_node?(message)
+          output(serialize(message).to_s, color, figure: figure, indent: indent)
+          return
+        end
+
         case message
         when Symbol
           @io.puts "#{INDENT * indent}#{message}"
@@ -131,16 +130,19 @@ module PrD
           output("Code (#{message.language}):", color, indent: indent)
           output(message.source, color, indent: indent + 1)
         when String
-          if message.include?("\n")
+          normalized_message = normalize_text(message)
+          colored_message = "#{COLOR_MAPPING[color]}#{normalized_message}#{COLOR_MAPPING[:default]}"
+
+          if normalized_message.include?("\n")
             @io.puts "#{COLOR_MAPPING[color]}#{INDENT * indent}--- Code Block ---#{COLOR_MAPPING[:default]}"
-            message.split("\n").each { |line| @io.puts "#{INDENT * (indent + 1)}#{line}" }
+            normalized_message.split("\n").each { |line| @io.puts "#{INDENT * (indent + 1)}#{line}" }
             @io.puts "#{COLOR_MAPPING[color]}#{INDENT * indent}--- End Block ---#{COLOR_MAPPING[:default]}"
           else
             @io.puts indented_message(colored_message)
           end
         when File
           if message.path.end_with?('.png', '.jpg', '.jpeg')
-            # output(AsciiArt.new(message.path).to_ascii_art(color: true, width: 120), color, indent: indent)
+            output("Image file: #{message.path}", color, indent: indent)
             output("Caption: #{figure}", color, indent: indent + 1) if figure
           elsif message.path.end_with?('.csv')
             output("CSV file: #{message.path}", color, indent: indent)
@@ -170,12 +172,85 @@ module PrD
           output("#{label} (#{value.language}):", :white, indent: 2)
           output(value.source, :white, indent: 3)
         else
-          output("#{label}: #{value}", :white, indent: 2)
+          output("#{label}: #{serialize(value)}", :white, indent: 2)
         end
+      end
+
+      def render_structured_subject_value(value, color:, indent:)
+        if code_object?(value)
+          output("Code (#{value.language}):", color, indent: indent)
+          output(value.source, color, indent: indent + 1)
+          return
+        end
+
+        if value.is_a?(Hash)
+          if value.empty?
+            output('{}', color, indent: indent)
+            return
+          end
+
+          value.each do |key, nested_value|
+            output("#{serialize(key)}:", color, indent: indent)
+            render_structured_subject_value(nested_value, color: color, indent: indent + 1)
+          end
+          return
+        end
+
+        if value.is_a?(Array)
+          if value.empty?
+            output('[]', color, indent: indent)
+            return
+          end
+
+          value.each_with_index do |entry, index|
+            output("[#{index}]:", color, indent: indent)
+            render_structured_subject_value(entry, color: color, indent: indent + 1)
+          end
+          return
+        end
+
+        image_path = image_file_path(value)
+        unless image_path.nil?
+          output("Image file: #{image_path}", color, indent: indent)
+          return
+        end
+
+        output(value, color, indent: indent)
+      end
+
+      def image_file_path(value)
+        path = file_path(value)
+        return nil if path.nil?
+        return nil unless path.match?(/\.(png|jpe?g)\z/i)
+
+        path
+      end
+
+      def file_path(value)
+        return value.path if value.is_a?(File)
+        return nil unless value.respond_to?(:path)
+
+        path = value.path
+        path.is_a?(String) && !path.empty? ? path : nil
+      rescue StandardError
+        nil
       end
 
       def indented_message(message, indent_incr: 0)
         "#{INDENT * (@level + indent_incr)}#{message}"
+      end
+
+      def normalize_text(value)
+        string = value.to_s
+        return string if string.encoding == Encoding::UTF_8 && string.valid_encoding?
+
+        if string.encoding == Encoding::ASCII_8BIT
+          return string.dup.force_encoding(Encoding::UTF_8).scrub('?')
+        end
+
+        string.encode(Encoding::UTF_8, invalid: :replace, undef: :replace, replace: '?')
+      rescue Encoding::ConverterNotFoundError, Encoding::CompatibilityError, Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
+        string.dup.force_encoding(Encoding::UTF_8).scrub('?')
       end
     end
   end

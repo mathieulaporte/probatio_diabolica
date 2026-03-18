@@ -73,7 +73,6 @@ module PrD
 
     def describe(description, model: nil, &block)
       context(description, model: model, &block)
-      @formatter.result(@passed_count, @failed_count)
     end
 
     def context(description, model: nil, &block)
@@ -184,6 +183,7 @@ module PrD
       @failed_count += 1
     ensure
       close_chrome_browser if respond_to?(:close_chrome_browser, true)
+      @formatter.result(@passed_count, @failed_count)
       @formatter.flush
     end
 

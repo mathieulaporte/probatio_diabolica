@@ -117,6 +117,10 @@ module PrD
         serializer = @serializers[value.class]
         return serializer.call(value) if serializer
 
+        if ferrum_node?(value)
+          return serialize_ferrum_node(value)
+        end
+
         if code_object?(value)
           return serialize_code(value)
         end
@@ -170,6 +174,17 @@ module PrD
           encoding: 'base64',
           bytes: Base64.strict_encode64(pdf_content || '')
         }
+      end
+
+      def serialize_ferrum_node(node)
+        payload = ferrum_node_payload(node)
+        {
+          type: 'ferrum_node',
+          selector: ferrum_node_selector(payload),
+          text: payload[:text],
+          html_preview: payload[:html],
+          summary: ferrum_node_summary(node)
+        }.compact
       end
 
       def pdf_reader_bytes(reader)

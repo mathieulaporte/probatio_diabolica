@@ -75,15 +75,7 @@ module PrD
       def subject(subject)
         return if synthetic?
         add_event(:subject, message: 'Subject', level: @level)
-        if code_object?(subject)
-          add_event(:code_header, message: "Language: #{subject.language}", level: @level + 1)
-          add_event(:code_block, message: subject.source, level: @level + 1, language: subject.language)
-        elsif image_file?(subject)
-          add_event(:detail, message: serialize(subject).to_s, level: @level + 1)
-          add_event(:subject_image, message: subject.path, level: @level + 1)
-        else
-          add_event(:detail, message: serialize(subject).to_s, level: @level + 1)
-        end
+        append_subject_value(subject, level: @level + 1)
       end
 
       def pending(description = nil)
@@ -372,7 +364,62 @@ module PrD
       end
 
       def image_file?(value)
-        value.is_a?(File) && value.path.match?(/\.(png|jpe?g)\z/i)
+        path = file_path(value)
+        !path.nil? && path.match?(/\.(png|jpe?g)\z/i)
+      end
+
+      def file_path(value)
+        return value.path if value.is_a?(File)
+        return nil unless value.respond_to?(:path)
+
+        path = value.path
+        path.is_a?(String) && !path.empty? ? path : nil
+      rescue StandardError
+        nil
+      end
+
+      def append_subject_value(value, level:, key_label: nil)
+        add_event(:detail, message: "#{key_label}:", level:) unless key_label.nil?
+        target_level = key_label.nil? ? level : level + 1
+
+        if code_object?(value)
+          add_event(:code_header, message: "Language: #{value.language}", level: target_level)
+          add_event(:code_block, message: value.source, level: target_level, language: value.language)
+          return
+        end
+
+        if value.is_a?(Hash)
+          if value.empty?
+            add_event(:detail, message: '{}', level: target_level)
+            return
+          end
+
+          value.each do |entry_key, entry_value|
+            append_subject_value(entry_value, level: target_level, key_label: serialize(entry_key).to_s)
+          end
+          return
+        end
+
+        if value.is_a?(Array)
+          if value.empty?
+            add_event(:detail, message: '[]', level: target_level)
+            return
+          end
+
+          value.each_with_index do |entry, index|
+            append_subject_value(entry, level: target_level, key_label: "[#{index}]")
+          end
+          return
+        end
+
+        if image_file?(value)
+          image_path = file_path(value)
+          add_event(:detail, message: "Image file: #{image_path}", level: target_level)
+          add_event(:subject_image, message: image_path, level: target_level)
+          return
+        end
+
+        add_event(:detail, message: serialize(value).to_s, level: target_level)
       end
 
       def render_image(document, path, level:)

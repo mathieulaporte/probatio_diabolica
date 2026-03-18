@@ -218,6 +218,9 @@ end
 - `pdf(at:, warmup_time:)` generates a PDF and returns a `PDF::Reader`
 - `html(at:, warmup_time:)` returns HTML (`browser.body`)
 
+Detailed dedicated documentation:
+- `docs/chrome_helper.md` (full API contract, inputs/outputs, errors, and LLM-oriented usage patterns)
+
 `BrowserSession` adds high-level page interactions:
 
 - `find(css:/xpath:, wait:, shadow:)`
@@ -322,21 +325,29 @@ When you define a `subject`, each formatter tries to render it in the most usefu
 
 - `SimpleFormatter`:
   - renders readable text in terminal
+  - for `Hash`/`Array` subjects, prints one key/index per line with nested indentation
   - for files, prints a textual representation (for example path, file preview for `.txt`)
+  - for `Ferrum::Node`, prints a readable summary (`Ferrum::Node <tag#id.class> text="..."`) instead of the Ruby object id
 - `HtmlFormatter`:
   - renders text values directly
+  - for `Hash`/`Array` subjects, renders nested key/value blocks for better readability
   - for `PrD::Code`, renders syntax-highlighted code blocks (Rouge) inside collapsible sections
   - for image files (`.png`, `.jpg`, `.jpeg`), embeds the image in the report
   - for PDF subjects (`File` `.pdf` or `PDF::Reader`), embeds the PDF with a `data:application/pdf;base64,...` URI
+  - for `Ferrum::Node`, renders the same readable summary with HTML escaping
 - `PdfFormatter`:
   - renders text values as report lines
+  - for `Hash`/`Array` subjects, renders nested key/value lines
   - for `PrD::Code`, renders language + syntax-highlighted code block (Rouge -> Prawn colors)
   - for image files (`.png`, `.jpg`, `.jpeg`), inserts the image directly in the PDF report
+  - for `Ferrum::Node`, renders the same readable summary in the generated PDF text
 - `JsonFormatter`:
   - keeps a structured representation for machine processing
+  - preserves nested `Hash`/`Array` structure in event payloads
   - for `PrD::Code`, emits a structured payload (`type: "code"`, `language`, `source`)
   - `File` values (images, PDFs, text files, etc.) are embedded as base64 payloads
   - `PDF::Reader` values are also embedded as base64 (`application/pdf`)
+  - for `Ferrum::Node`, emits a structured payload (`type: "ferrum_node"`, `selector`, `text`, `html_preview`, `summary`)
 
 The goal is to preserve readability and report size while surfacing the richest representation each formatter can reasonably support.
 

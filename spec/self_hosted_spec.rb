@@ -4,6 +4,7 @@ require 'json'
 require 'tempfile'
 require 'tmpdir'
 require 'shellwords'
+require 'base64'
 require 'pdf-reader'
 
 def capture_stderr
@@ -18,6 +19,34 @@ end
 def capture_cli(command)
   stdout, stderr, status = Open3.capture3(command)
   [PrD::Code.new(source: stdout, language: 'bash'), stderr, status]
+end
+
+def build_fake_ferrum_node(tag: 'button', id: 'save', classes: %w[btn primary], text: 'Save changes', html: nil)
+  payload = {
+    'tag' => tag,
+    'id' => id,
+    'classes' => classes,
+    'text' => text,
+    'html' => html || "<#{tag} id=\"#{id}\" class=\"#{classes.join(' ')}\">#{text}</#{tag}>"
+  }
+
+  fake_class = Struct.new(:name).new('Ferrum::Node')
+  Object.new.tap do |node|
+    node.define_singleton_method(:class) { fake_class }
+    node.define_singleton_method(:evaluate) { |_script| payload }
+  end
+end
+
+def build_tiny_png_file
+  file = Tempfile.new(['prd_image_fixture', '.png'])
+  file.binmode
+  file.write(
+    Base64.decode64(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aS8AAAAASUVORK5CYII='
+    )
+  )
+  file.flush
+  file
 end
 
 describe 'PrD self-hosted reliability' do
@@ -764,6 +793,27 @@ describe 'PrD self-hosted reliability' do
     expect(valid).to(eq(true))
   end
 
+  it 'serializes Ferrum::Node values in JsonFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::JsonFormatter.new(io:, serializers: {})
+    node = build_fake_ferrum_node
+
+    formatter.subject(node)
+    formatter.result(1, 0)
+    formatter.flush
+
+    io.rewind
+    json = JSON.parse(io.read)
+    subject_event = json['events'].find { |event| event['type'] == 'subject' }
+    payload = subject_event && subject_event['value']
+    valid =
+      payload.is_a?(Hash) &&
+      payload['type'] == 'ferrum_node' &&
+      payload['selector'] == 'button#save.btn.primary' &&
+      payload['summary'].include?('Ferrum::Node <button#save.btn.primary>')
+    expect(valid).to(eq(true))
+  end
+
   it 'handles binary expectations in JsonFormatter output' do
     io = StringIO.new
     formatter = PrD::Formatters::JsonFormatter.new(io:, serializers: {})
@@ -816,6 +866,28 @@ describe 'PrD self-hosted reliability' do
     expect(output).not_to(includes('Justification:'))
   end
 
+  it 'prints the global summary once with nested describe blocks' do
+    io = StringIO.new
+    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'Outer suite' do
+          describe 'Inner suite' do
+            it 'passes once' do
+              expect(1).to(eq(1))
+            end
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    output = io.read
+    expect(output).to(includes('1 passed, 0 failed'))
+    expect(output.scan(/passed,\s+0 failed/).length).to(eq(1))
+  end
+
   it 'renders code blocks with language in SimpleFormatter output' do
     io = StringIO.new
     formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {})
@@ -836,6 +908,66 @@ describe 'PrD self-hosted reliability' do
     output = io.read
     valid = output.include?('Expect (ruby):') && output.include?('--- Code Block ---')
     expect(valid).to(eq(true))
+  end
+
+  it 'renders Ferrum::Node subjects in SimpleFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {})
+    node = build_fake_ferrum_node
+
+    formatter.subject(node)
+
+    io.rewind
+    output = io.read
+    expect(output).to(includes('Ferrum::Node <button#save.btn.primary> text="Save changes"'))
+  end
+
+  it 'renders hash subjects with key/value details in SimpleFormatter output' do
+    image_file = build_tiny_png_file
+    io = StringIO.new
+    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {})
+
+    begin
+      formatter.subject(
+        {
+          screenshot: image_file,
+          snippet: PrD::Code.new(source: "def sample\n  :ok\nend", language: 'ruby'),
+          state: 'ready'
+        }
+      )
+    ensure
+      image_file.close!
+    end
+
+    io.rewind
+    output = io.read
+    expect(output).to(includes('screenshot:'))
+    expect(output).to(includes('Image file:'))
+    expect(output).to(includes('snippet:'))
+    expect(output).to(includes('Code (ruby):'))
+    expect(output).to(includes('state:'))
+    expect(output).to(includes('ready'))
+  end
+
+  it 'handles binary expectations in SimpleFormatter verbose output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {}, mode: :verbose)
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'Simple binary suite' do
+          it 'renders binary safely' do
+            bytes = "%PDF-1.3\\n\\xFF\\x00".b
+            expect(bytes).to(includes('%PDF-1.3'))
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    output = io.read
+    expect(output).to(includes('1 passed, 0 failed'))
+    expect(output).to(includes('Expect: %PDF-1.3'))
   end
 
   it 'reduces HtmlFormatter output in synthetic mode' do
@@ -867,6 +999,48 @@ describe 'PrD self-hosted reliability' do
     expect(html).to(includes('<strong>1 passed, 0 failed</strong>'))
     expect(html).not_to(includes('<strong>Expect:</strong>'))
     expect(html).not_to(includes('<strong>Matcher:</strong>'))
+  end
+
+  it 'renders Ferrum::Node subjects in HtmlFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
+    node = build_fake_ferrum_node
+
+    formatter.subject(node)
+    formatter.result(1, 0)
+    formatter.flush
+
+    html = io.string
+    expect(html).to(includes('Ferrum::Node &lt;button#save.btn.primary&gt; text=&quot;Save changes&quot;'))
+  end
+
+  it 'renders hash subjects with nested values in HtmlFormatter output' do
+    image_file = build_tiny_png_file
+    io = StringIO.new
+    formatter = PrD::Formatters::HtmlFormatter.new(io:, serializers: {})
+
+    begin
+      formatter.subject(
+        {
+          screenshot: image_file,
+          snippet: PrD::Code.new(source: "def html_hash\n  :ok\nend", language: 'ruby'),
+          metadata: { status: 'ok' }
+        }
+      )
+      formatter.result(1, 0)
+      formatter.flush
+    ensure
+      image_file.close!
+    end
+
+    html = io.string
+    expect(html).to(includes('<strong>screenshot:</strong>'))
+    expect(html).to(includes('class="subject-image'))
+    expect(html).to(includes('<strong>snippet:</strong>'))
+    expect(html).to(includes('class="code-block"'))
+    expect(html).to(includes('<strong>metadata:</strong>'))
+    expect(html).to(includes('<strong>status:</strong>'))
+    expect(html).to(includes('ok'))
   end
 
   it 'produces compact JSON formatter output in synthetic mode' do
@@ -918,6 +1092,52 @@ describe 'PrD self-hosted reliability' do
     expect(content).to(includes('/Dest'))
     expect(content).to(includes('ctx-1'))
     expect(content).to(includes('test-1'))
+  end
+
+  it 'renders Ferrum::Node subjects in PdfFormatter output' do
+    io = StringIO.new
+    formatter = PrD::Formatters::PdfFormatter.new(io:, serializers: {})
+    node = build_fake_ferrum_node
+
+    formatter.subject(node)
+    formatter.result(1, 0)
+    formatter.flush
+
+    reader = PDF::Reader.new(StringIO.new(io.string))
+    text = reader.pages.map(&:text).join("\n")
+    expect(text).to(includes('Ferrum::Node <button#save.btn.primary> text="Save changes"'))
+  end
+
+  it 'renders hash subjects with key/value details in PdfFormatter output' do
+    image_file = build_tiny_png_file
+    io = StringIO.new
+    formatter = PrD::Formatters::PdfFormatter.new(io:, serializers: {})
+
+    begin
+      formatter.subject(
+        {
+          screenshot: image_file,
+          snippet: PrD::Code.new(source: "def pdf_hash\n  :ok\nend", language: 'ruby'),
+          metadata: { status: 'ok' }
+        }
+      )
+      formatter.result(1, 0)
+      formatter.flush
+    ensure
+      image_file.close!
+    end
+
+    content = io.string
+    reader = PDF::Reader.new(StringIO.new(content))
+    text = reader.pages.map(&:text).join("\n")
+    expect(text).to(includes('screenshot:'))
+    expect(text).to(includes('Image file:'))
+    expect(text).to(includes('snippet:'))
+    expect(text).to(includes('Language: ruby'))
+    expect(text).to(includes('metadata:'))
+    expect(text).to(includes('status:'))
+    expect(text).to(includes('ok'))
+    expect(content).to(includes('/Subtype /Image'))
   end
 
   it 'renders code blocks with language markers in PdfFormatter output' do
