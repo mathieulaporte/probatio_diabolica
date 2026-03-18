@@ -56,6 +56,7 @@ module PrD
         end
       end
       @models_stack = []
+      @hook_scopes = [{ before: [], after: [] }]
       if config_file
         if File.exist?(config_file)
           require File.expand_path(config_file)
@@ -79,42 +80,51 @@ module PrD
       @formatter.context(description)
       @formatter.increment_level
       @models_stack.push(model) if model
+      @hook_scopes << { before: [], after: [] }
 
       instance_eval(&block)
-
+    ensure
+      @hook_scopes.pop
       @models_stack.pop if model
       @formatter.decrement_level
     end
 
     def it(description = nil, model = nil, &block)
+      result = nil
+      execution_error = nil
+      before_hooks = collect_before_hooks
+      after_hooks = collect_after_hooks
+
       begin
         description ||= @tests.split("\n")[block.source_location.last - 1].strip
         @models_stack.push(model) if model
         @formatter.it(description, &block) if @verbose
         @formatter.increment_level
+
+        before_hooks.each { |hook| instance_eval(&hook) }
         result = block.call
-        if !result.pass
-          @failed_count += 1
-          @formatter.justification(result.comment) if result.comment
-          @formatter.failure_result("Test failed at #{formatted_time}")
+      rescue => e
+        execution_error = e
+      ensure
+        after_error = run_after_hooks(after_hooks)
+        execution_error ||= after_error
+
+        if execution_error
+          report_test_execution_error(execution_error)
         else
-          @passed_count += 1
-          if @verbose
-            @formatter.justification(result.comment) if result.comment
-            @formatter.success_result("Test passed successfully at #{formatted_time}")
+          begin
+            process_test_result(result)
+          rescue StandardError => e
+            report_test_execution_error(e)
           end
         end
-        return result
-      rescue => e
-        $stderr.puts "An error occurred while executing test: #{e.message}"
-        $stderr.puts e.backtrace.join("\n")
-        @formatter.failure_result("Test failed at #{formatted_time} with error message: #{e.message}")
-        @failed_count += 1
-      ensure
+
         @formatter.end_it(description, &block)
         @formatter.decrement_level
         @models_stack.pop if model
       end
+
+      result
     end
 
     def let(name, &block)
@@ -131,6 +141,18 @@ module PrD
 
       instance_variable_set("@#{name}", block_result)
       define_singleton_method(name) { block_result }
+    end
+
+    def before(&block)
+      raise ArgumentError, 'before requires a block.' unless block_given?
+
+      current_hook_scope[:before] << block
+    end
+
+    def after(&block)
+      raise ArgumentError, 'after requires a block.' unless block_given?
+
+      current_hook_scope[:after] << block
     end
 
     def to(matcher)
@@ -202,6 +224,55 @@ module PrD
 
     def formatted_time
       Time.now.utc.strftime('%Y-%m-%d %H:%M:%S UTC')
+    end
+
+    def current_hook_scope
+      @hook_scopes.last
+    end
+
+    def collect_before_hooks
+      @hook_scopes.flat_map { |scope| scope[:before] }
+    end
+
+    def collect_after_hooks
+      @hook_scopes.reverse.flat_map { |scope| scope[:after].reverse }
+    end
+
+    def run_after_hooks(hooks)
+      first_error = nil
+      hooks.each do |hook|
+        begin
+          instance_eval(&hook)
+        rescue StandardError => e
+          first_error ||= e
+        end
+      end
+      first_error
+    end
+
+    def report_test_execution_error(error)
+      $stderr.puts "An error occurred while executing test: #{error.message}"
+      $stderr.puts error.backtrace.join("\n")
+      @formatter.failure_result("Test failed at #{formatted_time} with error message: #{error.message}")
+      @failed_count += 1
+    end
+
+    def process_test_result(result)
+      unless result.respond_to?(:pass)
+        raise NoMethodError, 'Test example must return a matcher result. Use expect(...).to(...) or expect(...).not_to(...).'
+      end
+
+      if !result.pass
+        @failed_count += 1
+        @formatter.justification(result.comment) if result.comment
+        @formatter.failure_result("Test failed at #{formatted_time}")
+      else
+        @passed_count += 1
+        if @verbose
+          @formatter.justification(result.comment) if result.comment
+          @formatter.success_result("Test passed successfully at #{formatted_time}")
+        end
+      end
     end
 
   end

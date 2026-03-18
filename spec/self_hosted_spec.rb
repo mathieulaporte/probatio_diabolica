@@ -102,6 +102,93 @@ describe 'PrD self-hosted reliability' do
     expect(simple_report).to(includes('Uses subject with expect.to'))
   end
 
+  it 'supports before and after hooks for each example' do
+    io = StringIO.new
+    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'Hooks suite' do
+          before do
+            @before_count ||= 0
+            @before_count += 1
+          end
+
+          after do
+            @after_count ||= 0
+            @after_count += 1
+          end
+
+          it 'runs before on first test' do
+            expect(@before_count).to(eq(1))
+          end
+
+          it 'runs before on second test' do
+            expect(@before_count).to(eq(2))
+          end
+
+          it 'runs after from previous tests' do
+            expect(@after_count).to(eq(2))
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    output = io.read
+    expect(output).to(includes('3 passed, 0 failed'))
+  end
+
+  it 'runs nested hooks in deterministic order' do
+    io = StringIO.new
+    formatter = PrD::Formatters::SimpleFormatter.new(io:, serializers: {})
+
+    PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil).run([
+      <<~SPEC
+        describe 'Nested hooks suite' do
+          before do
+            @events ||= []
+            @events << 'outer-before'
+          end
+
+          after do
+            @events << 'outer-after'
+          end
+
+          context 'inner scope' do
+            before do
+              @events << 'inner-before'
+            end
+
+            after do
+              @events << 'inner-after'
+            end
+
+            it 'applies outer then inner before hooks' do
+              expect(@events).to(eq(['outer-before', 'inner-before']))
+            end
+
+            it 'applies inner then outer after hooks' do
+              expect(@events).to(
+                eq(
+                  [
+                    'outer-before', 'inner-before',
+                    'inner-after', 'outer-after',
+                    'outer-before', 'inner-before'
+                  ]
+                )
+              )
+            end
+          end
+        end
+      SPEC
+    ])
+
+    io.rewind
+    output = io.read
+    expect(output).to(includes('2 passed, 0 failed'))
+  end
+
   it 'raises when satisfy is used without a model' do
     error_message = begin
       expect('text').to(satisfy('is true'))

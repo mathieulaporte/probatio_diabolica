@@ -13,6 +13,7 @@ This project is experimental and not production-ready.
 `probatio_diabolica` runs `*_spec.rb` files through a custom runtime (`PrD::Runtime`) with an RSpec-like syntax:
 
 - `describe`, `context`, `it`, `pending`, `let`, `subject`
+- `before`, `after`
 - `expect(...).to(...)` and `expect(...).not_to(...)`
 - standard matchers (`eq`, `be`, `includes`, `have`, `all`)
 - LLM matcher `satisfy(...)` to validate natural-language conditions
@@ -141,12 +142,21 @@ It is inspired by RSpec but with a custom runtime and additional features.
 ```ruby
 describe 'My domain' do
   context 'my context' do
+    before do
+      @sum = 0
+    end
+
     let(:two) { 2 }
     let(:three) { 3 }
     subject { two + three }
 
     it 'runs an assertion' do
+      @sum += subject
       expect.to eq(5)
+    end
+
+    after do
+      expect(@sum).to(eq(5))
     end
 
     pending 'test to implement later'
@@ -160,6 +170,14 @@ end
 - `expect(actual).not_to matcher`
 - `expect { |subject| ... }.to matcher`
 - `expect.to matcher` (uses `subject`)
+
+### Hooks (`before` / `after`)
+
+- `before { ... }` runs before each `it` in the current context and nested contexts
+- `after { ... }` runs after each `it` in the current context and nested contexts
+- nested order:
+  - `before`: outer to inner
+  - `after`: inner to outer
 
 ### Spec best practices for `subject` (PRD reports)
 
