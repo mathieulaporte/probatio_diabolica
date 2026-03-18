@@ -12,7 +12,7 @@ This project is experimental and not production-ready.
 
 `probatio_diabolica` runs `*_spec.rb` files through a custom runtime (`PrD::Runtime`) with an RSpec-like syntax:
 
-- `describe`, `context`, `it`, `pending`, `let`, `subject`
+- `describe`, `context`, `it`, `pending`, `let`, `subject`, `subject!`
 - `before`, `after`
 - `expect(...).to(...)` and `expect(...).not_to(...)`
 - standard matchers (`eq`, `be`, `includes`, `have`, `all`)
@@ -169,7 +169,7 @@ end
 - `expect(actual).to matcher`
 - `expect(actual).not_to matcher`
 - `expect { |subject| ... }.to matcher`
-- `expect.to matcher` (uses `subject`)
+- `expect.to matcher` (uses `subject` / `subject!`)
 
 ### Hooks (`before` / `after`)
 
@@ -178,6 +178,11 @@ end
 - nested order:
   - `before`: outer to inner
   - `after`: inner to outer
+
+### Subject (`subject` vs `subject!`)
+
+- `subject { ... }`: lazy, evaluated on first access in each example, memoized for that example
+- `subject! { ... }`: eager, evaluated before each example body (uses an implicit `before`)
 
 ### Spec best practices for `subject` (PRD reports)
 
@@ -336,6 +341,8 @@ In CLI usage:
 
 - selecting one formatter writes one output stream/file
 - selecting multiple formatters runs tests once and writes one file per formatter
+- expectation rendering is sentence-based across human-readable formatters (for example `Expect 321 to be equal to 321`) to reduce vertical noise
+- HTML/PDF also emphasize keywords and actual/expected values for faster scanning
 
 ### Let/subject rendering policy (best effort)
 

@@ -3,6 +3,7 @@ module PrD
     class Formatter
       SUPPORTED_MODES = %i[verbose synthetic].freeze
       MISSING_VALUE = Object.new
+      NO_EXPECTED_VALUE = Object.new
 
       def initialize(io: $stdout, serializers: {}, mode: :verbose, display_adapters: {})
         @io = io
@@ -43,6 +44,14 @@ module PrD
 
       def subject(subject)
         raise NotImplementedError, "#{self.class} must implement #subject"
+      end
+
+      def subject_display_strategy
+        :on_evaluation
+      end
+
+      def eager_subject_display_strategy
+        subject_display_strategy
       end
 
       def register_display_adapter(matcher, callable = nil, &block)
@@ -397,6 +406,40 @@ module PrD
 
         seen[object_id] = true
         false
+      end
+
+      def matcher_sentence_parts(matcher, sources:)
+        case matcher
+        when Matchers::EqMatcher
+          ['be equal to', matcher.expected]
+        when Matchers::BeMatcher
+          ['be the same object as', matcher.expected]
+        when Matchers::IncludesMatcher
+          ['include', matcher.expected]
+        when Matchers::HaveMatcher
+          ['have', matcher.expected]
+        when Matchers::LlmMatcher
+          ['satisfy condition', matcher.expected]
+        when Matchers::AllMatcher
+          if sources
+            code_line = matcher.expected.source_location.last.to_i
+            code = sources.lines[code_line - 1]
+            expected = code&.strip
+            if expected.nil? || expected.empty?
+              ['all match the given condition', NO_EXPECTED_VALUE]
+            else
+              ['all match condition', expected]
+            end
+          else
+            ['all match the given condition', NO_EXPECTED_VALUE]
+          end
+        else
+          ['match', matcher.class.to_s]
+        end
+      end
+
+      def expectation_operator_text(operator)
+        operator == :not_to ? 'not to' : 'to'
       end
     end
   end

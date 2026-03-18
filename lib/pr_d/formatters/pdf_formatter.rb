@@ -21,6 +21,7 @@ module PrD
         @summary = { passed: 0, failed: 0 }
         @index_entries = []
         @anchor_counters = Hash.new(0)
+        @pending_expectation = nil
       end
 
       def title(message)
@@ -56,6 +57,7 @@ module PrD
 
       def it(description = nil, &block)
         @current_test_title = description.to_s
+        @pending_expectation = nil
         anchor_id = next_anchor_id('test')
         add_index_entry(type: :test, label: description.to_s, level: @level, anchor_id:)
         add_event(:it, message: description.to_s, level: @level, anchor_id:)
@@ -83,6 +85,14 @@ module PrD
         append_subject_node(display_node(subject), level: @level + 1)
       end
 
+      def subject_display_strategy
+        :on_evaluation
+      end
+
+      def eager_subject_display_strategy
+        :on_definition
+      end
+
       def pending(description = nil)
         pending_label = description || 'Pending test'
         anchor_id = next_anchor_id('pending')
@@ -94,42 +104,27 @@ module PrD
 
       def expect(expectation)
         return if synthetic?
-        if code_object?(expectation)
-          add_event(:code_header, message: "Expect (#{expectation.language})", level: @level + 1)
-          add_event(:code_block, message: expectation.source, level: @level + 1, language: expectation.language)
-        else
-          add_event(:detail, message: "Expect: #{serialize(expectation)}", level: @level + 1)
-        end
+        @pending_expectation = { actual: expectation, operator: :to }
       end
 
       def to
         return if synthetic?
-        add_event(:detail, message: 'To:', level: @level + 1)
+        @pending_expectation ||= {}
+        @pending_expectation[:operator] = :to
       end
 
       def not_to
         return if synthetic?
-        add_event(:detail, message: 'Not to:', level: @level + 1)
+        @pending_expectation ||= {}
+        @pending_expectation[:operator] = :not_to
       end
 
       def matcher(matcher, sources: nil)
         return if synthetic?
-        case matcher
-        when Matchers::EqMatcher
-          add_matcher_value_event('Be equal to', matcher.expected)
-        when Matchers::BeMatcher
-          add_matcher_value_event('Be the same object as', matcher.expected)
-        when Matchers::IncludesMatcher
-          add_matcher_value_event('Include', matcher.expected)
-        when Matchers::HaveMatcher
-          add_matcher_value_event('Have', matcher.expected)
-        when Matchers::LlmMatcher
-          add_matcher_value_event('Satisfy condition', matcher.expected)
-        when Matchers::AllMatcher
-          add_event(:matcher, message: 'all match the given condition', level: @level + 2)
-        else
-          add_event(:matcher, message: "match: #{matcher.class}", level: @level + 2)
-        end
+        matcher_label, expected_value = matcher_sentence_parts(matcher, sources:)
+        add_expectation_sentence_event(matcher_label, expected_value)
+      ensure
+        @pending_expectation = nil
       end
 
       def result(passed_count, failed_count)
@@ -270,6 +265,8 @@ module PrD
             status_line(document, 'PENDING', event[:message], event[:level], COLORS[:pending])
           when :matcher
             styled_line(document, event[:message], level: event[:level], size: 10, color: COLORS[:muted])
+          when :expectation
+            render_expectation_event(document, event)
           when :code_header
             styled_line(document, event[:message], level: event[:level], size: 10, style: :bold, color: COLORS[:muted])
           when :code_block
@@ -343,13 +340,65 @@ module PrD
         document.move_down 3
       end
 
-      def add_matcher_value_event(label, value)
-        if code_object?(value)
-          add_event(:matcher, message: "#{label} (#{value.language})", level: @level + 2)
-          add_event(:code_block, message: value.source, level: @level + 2, language: value.language)
-        else
-          add_event(:matcher, message: "#{label}: #{serialize(value)}", level: @level + 2)
+      def render_expectation_event(document, event)
+        fragments = event[:fragments] || []
+        return if fragments.empty?
+
+        document.indent(event[:level] * 14) do
+          document.formatted_text(fragments, size: 10)
         end
+        document.move_down 2
+      end
+
+      def add_expectation_sentence_event(matcher_label, expected_value)
+        actual_provided = @pending_expectation && @pending_expectation.key?(:actual)
+        actual = actual_provided ? @pending_expectation[:actual] : nil
+        operator = expectation_operator_text(@pending_expectation && @pending_expectation[:operator])
+        actual_text = actual_provided ? expectation_inline_value(actual) : '(subject)'
+        expected_present = !expected_value.equal?(NO_EXPECTED_VALUE)
+        expected_text = expected_present ? expectation_inline_value(expected_value) : nil
+
+        fragments = [
+          expectation_keyword_fragment('Expect'),
+          expectation_plain_fragment(' '),
+          expectation_value_fragment(actual_text, role: :actual),
+          expectation_plain_fragment(" #{operator} "),
+          expectation_keyword_fragment(matcher_label)
+        ]
+        if expected_present
+          fragments << expectation_plain_fragment(' ')
+          fragments << expectation_value_fragment(expected_text, role: :expected)
+        end
+
+        add_event(:expectation, message: '', level: @level + 1, fragments:)
+        add_expectation_code_event('Actual', actual, level: @level + 2)
+        add_expectation_code_event('Expected', expected_value, level: @level + 2) if expected_present
+      end
+
+      def expectation_inline_value(value)
+        return "(#{value.language} code)" if code_object?(value)
+
+        serialize(value).to_s
+      end
+
+      def expectation_plain_fragment(text)
+        { text: safe_pdf_text(text), color: COLORS[:text] }
+      end
+
+      def expectation_keyword_fragment(text)
+        { text: safe_pdf_text(text), styles: [:bold], color: COLORS[:title] }
+      end
+
+      def expectation_value_fragment(text, role:)
+        color = role == :expected ? COLORS[:pass] : COLORS[:context]
+        { text: safe_pdf_text(text), color:, font: 'Courier' }
+      end
+
+      def add_expectation_code_event(prefix, value, level:)
+        return unless code_object?(value)
+
+        add_event(:code_header, message: "#{prefix} code (#{value.language})", level:)
+        add_event(:code_block, message: value.source, level:, language: value.language)
       end
 
       def index_label(entry)

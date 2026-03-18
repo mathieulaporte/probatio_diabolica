@@ -11,6 +11,7 @@ module PrD
         @index_entries = []
         @anchor_counters = Hash.new(0)
         @rouge_formatter = Rouge::Formatters::HTMLLegacy.new(css_class: 'highlight')
+        @pending_expectation = nil
       end
 
       def context(message)
@@ -37,6 +38,7 @@ module PrD
 
       def it(description = nil, &block)
         @current_test_title = description.to_s
+        @pending_expectation = nil
         anchor_id = next_anchor_id('test')
         add_index_entry(type: :test, label: description.to_s, level: @level, anchor_id:)
         @content << "<article class=\"test-card\" id=\"#{anchor_id}\">"
@@ -64,6 +66,14 @@ module PrD
         render_value_block('Subject', subject)
       end
 
+      def subject_display_strategy
+        :on_evaluation
+      end
+
+      def eager_subject_display_strategy
+        :on_definition
+      end
+
       def pending(description = nil)
         pending_label = description || 'Pending test'
         anchor_id = next_anchor_id('pending')
@@ -82,43 +92,27 @@ module PrD
 
       def expect(expectation)
         return if synthetic?
-        render_labeled_value('Expect', expectation)
+        @pending_expectation = { actual: expectation, operator: :to }
       end
 
       def to
         return if synthetic?
-        @content << '<p class="line"><strong>To:</strong></p>'
+        @pending_expectation ||= {}
+        @pending_expectation[:operator] = :to
       end
 
       def not_to
         return if synthetic?
-        @content << '<p class="line"><strong>Not to:</strong></p>'
+        @pending_expectation ||= {}
+        @pending_expectation[:operator] = :not_to
       end
 
       def matcher(matcher, sources: nil)
         return if synthetic?
-        case matcher
-        when Matchers::EqMatcher
-          render_matcher_value('Be equal to', matcher.expected)
-        when Matchers::BeMatcher
-          render_matcher_value('Be the same object as', matcher.expected)
-        when Matchers::IncludesMatcher
-          render_matcher_value('Include', matcher.expected)
-        when Matchers::HaveMatcher
-          render_matcher_value('Have', matcher.expected)
-        when Matchers::LlmMatcher
-          render_matcher_value('Satisfy condition', matcher.expected)
-        when Matchers::AllMatcher
-          if sources
-            code_line = matcher.expected.source_location.last.to_i
-            code = sources.lines[code_line - 1]
-            @content << "<p class=\"line\"><strong>Matcher:</strong> All match condition #{escape(code.strip)}</p>"
-          else
-            @content << '<p class="line"><strong>Matcher:</strong> All match the given condition</p>'
-          end
-        else
-          @content << "<p class=\"line\"><strong>Matcher:</strong> #{escape(matcher.class.to_s)}</p>"
-        end
+        matcher_label, expected_value = matcher_sentence_parts(matcher, sources:)
+        render_expectation_sentence(matcher_label, expected_value)
+      ensure
+        @pending_expectation = nil
       end
 
       def result(passed_count, failed_count)
@@ -288,6 +282,43 @@ module PrD
                 .line strong {
                   color: #0f172a;
                   margin-right: 0.35rem;
+                }
+
+                .expectation-line {
+                  line-height: 1.6;
+                }
+
+                .expectation-keyword {
+                  font-weight: 700;
+                  color: #0f172a;
+                }
+
+                .expectation-value {
+                  display: inline-block;
+                  margin: 0 0.18rem;
+                  padding: 0.08rem 0.4rem;
+                  border: 1px solid #d1d5db;
+                  border-radius: 999px;
+                  background: #f3f4f6;
+                  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                  font-size: 0.86rem;
+                }
+
+                .expectation-value.actual {
+                  background: #e0f2fe;
+                  border-color: #bae6fd;
+                  color: #0c4a6e;
+                }
+
+                .expectation-value.expected {
+                  background: #dcfce7;
+                  border-color: #bbf7d0;
+                  color: #14532d;
+                }
+
+                .expectation-code-label {
+                  color: var(--muted);
+                  margin-top: 0.2rem;
                 }
 
                 .status {
@@ -563,24 +594,6 @@ module PrD
         "#{prefix}-#{@anchor_counters[prefix]}"
       end
 
-      def render_labeled_value(label, value)
-        if code_object?(value)
-          @content << "<p class=\"line\"><strong>#{escape(label)}:</strong></p>"
-          @content << render_code_block(value)
-        else
-          @content << "<p class=\"line\"><strong>#{escape(label)}:</strong> #{escape(serialize(value).to_s)}</p>"
-        end
-      end
-
-      def render_matcher_value(label, value)
-        if code_object?(value)
-          @content << "<p class=\"line\"><strong>Matcher:</strong> #{escape(label)} (#{escape(value.language)})</p>"
-          @content << render_code_block(value)
-        else
-          @content << "<p class=\"line\"><strong>Matcher:</strong> #{escape(label)} #{escape(serialize(value).to_s)}</p>"
-        end
-      end
-
       def render_collapsible_let_block(label, value)
         @content << '<details class="let-block">'
         @content << "<summary class=\"let-toggle\">#{escape(label)}</summary>"
@@ -703,6 +716,53 @@ module PrD
 
       def normalize_text(value)
         value.to_s.encode('UTF-8', invalid: :replace, undef: :replace, replace: '?')
+      end
+
+      def render_expectation_sentence(matcher_label, expected_value)
+        actual_provided = @pending_expectation && @pending_expectation.key?(:actual)
+        actual = actual_provided ? @pending_expectation[:actual] : nil
+        operator = expectation_operator_text(@pending_expectation && @pending_expectation[:operator])
+        actual_text = actual_provided ? expectation_inline_value(actual) : '(subject)'
+        expected_present = !expected_value.equal?(NO_EXPECTED_VALUE)
+        expected_text = expected_present ? expectation_inline_value(expected_value) : nil
+
+        @content << '<p class="line expectation-line">'
+        @content << expectation_keyword_span('Expect')
+        @content << ' '
+        @content << expectation_value_span(actual_text, role: 'actual')
+        @content << ' '
+        @content << expectation_keyword_span(operator)
+        @content << ' '
+        @content << expectation_keyword_span(matcher_label)
+        if expected_present
+          @content << ' '
+          @content << expectation_value_span(expected_text, role: 'expected')
+        end
+        @content << '</p>'
+
+        render_expectation_code_block('Actual', actual)
+        render_expectation_code_block('Expected', expected_value) if expected_present
+      end
+
+      def expectation_inline_value(value)
+        return "(#{normalize_text(value.language)} code)" if code_object?(value)
+
+        serialize(value).to_s
+      end
+
+      def expectation_keyword_span(text)
+        %(<span class="expectation-keyword">#{escape(text)}</span>)
+      end
+
+      def expectation_value_span(value, role:)
+        %(<span class="expectation-value #{role}">#{escape(value)}</span>)
+      end
+
+      def render_expectation_code_block(prefix, value)
+        return unless code_object?(value)
+
+        @content << %(<p class="line expectation-code-label"><strong>#{escape(prefix)} code:</strong></p>)
+        @content << render_code_block(value)
       end
 
       def image_data_uri(path)

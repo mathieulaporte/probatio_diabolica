@@ -7,6 +7,7 @@ module PrD
 
       def initialize(io: $stdout, serializers: {}, mode: :verbose, display_adapters: {})
         super(io: io, serializers: serializers, mode: mode, display_adapters: display_adapters)
+        @pending_expectation = nil
       end
 
       def context(message)
@@ -32,6 +33,7 @@ module PrD
 
       def it(description = nil, &block)
         @current_test_title = description.to_s
+        @pending_expectation = nil
         return if synthetic?
         title(description.to_s.capitalize)
       end
@@ -55,6 +57,14 @@ module PrD
         render_display_node(display_node(subject), color: :white, indent: 1)
       end
 
+      def subject_display_strategy
+        :on_evaluation
+      end
+
+      def eager_subject_display_strategy
+        :on_definition
+      end
+
       def pending(description = nil)
         if synthetic?
           output("PENDING: #{description || 'Pending test'}", :yellow)
@@ -66,22 +76,19 @@ module PrD
 
       def expect(expectation)
         return if synthetic?
-        if code_object?(expectation)
-          output("Expect (#{expectation.language}):", :white, indent: 1)
-          output(expectation.source, :white, indent: 2)
-        else
-          output("Expect: #{serialize(expectation)}", :white, indent: 1)
-        end
+        @pending_expectation = { actual: expectation, operator: :to }
       end
 
       def to
         return if synthetic?
-        output('To:', :white, indent: 1)
+        @pending_expectation ||= {}
+        @pending_expectation[:operator] = :to
       end
 
       def not_to
         return if synthetic?
-        output('Not to:', :white, indent: 1)
+        @pending_expectation ||= {}
+        @pending_expectation[:operator] = :not_to
       end
 
       def end_it(description = nil, &block)
@@ -89,28 +96,10 @@ module PrD
 
       def matcher(matcher, sources: nil)
         return if synthetic?
-        case matcher
-        when Matchers::EqMatcher
-          output_matcher_value('Be equal to', matcher.expected)
-        when Matchers::BeMatcher
-          output_matcher_value('Be the same object as', matcher.expected)
-        when Matchers::IncludesMatcher
-          output_matcher_value('Include', matcher.expected)
-        when Matchers::HaveMatcher
-          output_matcher_value('Have', matcher.expected)
-        when Matchers::LlmMatcher
-          output_matcher_value('Satisfy condition', matcher.expected)
-        when Matchers::AllMatcher
-          if sources
-            code_line = matcher.expected.source_location.last.to_i
-            code = sources.lines[code_line - 1]
-            output("all match condition: #{code.strip}", :white, indent: 2)
-          else
-            output('all match the given condition', :white, indent: 2)
-          end
-        else
-          output("match: #{matcher.class}", :white, indent: 2)
-        end
+        matcher_label, expected_value = matcher_sentence_parts(matcher, sources:)
+        render_expectation_sentence(matcher_label, expected_value)
+      ensure
+        @pending_expectation = nil
       end
 
       def result(passed_count, failed_count)
@@ -172,15 +161,6 @@ module PrD
         output(message, :yellow)
       end
 
-      def output_matcher_value(label, value)
-        if code_object?(value)
-          output("#{label} (#{value.language}):", :white, indent: 2)
-          output(value.source, :white, indent: 3)
-        else
-          output("#{label}: #{serialize(value)}", :white, indent: 2)
-        end
-      end
-
       def render_display_node(node, color:, indent:)
         case node[:type]
         when :code
@@ -221,6 +201,35 @@ module PrD
 
       def indented_message(message, indent_incr: 0)
         "#{INDENT * (@level + indent_incr)}#{message}"
+      end
+
+      def render_expectation_sentence(matcher_label, expected_value)
+        actual_provided = @pending_expectation && @pending_expectation.key?(:actual)
+        actual = actual_provided ? @pending_expectation[:actual] : nil
+        operator = expectation_operator_text(@pending_expectation && @pending_expectation[:operator])
+        actual_text = actual_provided ? expectation_inline_value(actual) : '(subject)'
+        expected_present = !expected_value.equal?(NO_EXPECTED_VALUE)
+        expected_text = expected_present ? expectation_inline_value(expected_value) : nil
+
+        sentence = +"Expect #{actual_text} #{operator} #{matcher_label}"
+        sentence << " #{expected_text}" unless expected_text.nil?
+        output(sentence, :white, indent: 1)
+
+        render_expectation_code_block('Actual', actual, indent: 2)
+        render_expectation_code_block('Expected', expected_value, indent: 2) if expected_present
+      end
+
+      def expectation_inline_value(value)
+        return "(#{value.language} code)" if code_object?(value)
+
+        serialize(value).to_s
+      end
+
+      def render_expectation_code_block(prefix, value, indent:)
+        return unless code_object?(value)
+
+        output("#{prefix} code (#{value.language}):", :white, indent: indent)
+        output(value.source, :white, indent: indent + 1)
       end
 
       def normalize_text(value)

@@ -202,6 +202,85 @@ describe 'PrD self-hosted reliability' do
     expect(output).to(includes('2 passed, 0 failed'))
   end
 
+  it 'evaluates subject lazily and memoizes it per example' do
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
+      <<~SPEC
+        describe 'Lazy subject suite' do
+          subject do
+            @subject_calls ||= 0
+            @subject_calls += 1
+            { payload: :ok }
+          end
+
+          it 'does not evaluate subject before access' do
+            expect(@subject_calls.nil?).to(eq(true))
+            expect.to(eq({ payload: :ok }))
+          end
+
+          it 'memoizes subject within the same example' do
+            first = subject
+            second = subject
+            expect(first.equal?(second)).to(eq(true))
+            expect(@subject_calls).to(eq(2))
+          end
+        end
+      SPEC
+    )
+
+    expect(output).to(includes('2 passed, 0 failed'))
+  end
+
+  it 'supports subject! as eager subject evaluation' do
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
+      <<~SPEC
+        describe 'Eager subject suite' do
+          subject! do
+            @eager_calls ||= 0
+            @eager_calls += 1
+            'ready'
+          end
+
+          it 'evaluates before the example body' do
+            expect(@eager_calls).to(eq(1))
+            expect.to(eq('ready'))
+          end
+
+          it 'runs once per example' do
+            expect(@eager_calls).to(eq(2))
+            expect.to(eq('ready'))
+          end
+        end
+      SPEC
+    )
+
+    expect(output).to(includes('2 passed, 0 failed'))
+    expect(output.scan(/Subject/).length).to(eq(1))
+  end
+
+  it 'renders lazy subject value when evaluated in examples' do
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
+      <<~SPEC
+        describe 'Lazy display suite' do
+          subject { 'ready' }
+
+          it 'uses subject once' do
+            expect.to(eq('ready'))
+          end
+
+          it 'uses subject twice' do
+            expect.to(eq('ready'))
+          end
+        end
+      SPEC
+    )
+
+    expect(output).not_to(includes('Lazy subject:'))
+    expect(output.scan(/Subject/).length).to(eq(2))
+  end
+
   it 'raises when satisfy is used without a model' do
     error_message = begin
       expect('text').to(satisfy('is true'))
@@ -307,7 +386,7 @@ describe 'PrD self-hosted reliability' do
 
       expect(status.success?).to(be(true))
       expect(stderr).to(eq(''))
-      expect(stdout).to(includes('Expect:'))
+      expect(stdout).to(includes('Expect 1 to be equal to 1'))
       expect(stdout).to(includes('Test passed successfully'))
     end
   end
@@ -472,6 +551,9 @@ describe 'PrD self-hosted reliability' do
     expect(html).to(includes('</html>'))
     expect(html).to(includes('<main class="container">'))
     expect(html).to(includes('<strong>1 passed, 0 failed</strong>'))
+    expect(html).to(includes('class="expectation-keyword"'))
+    expect(html).to(includes('class="expectation-value actual"'))
+    expect(html).to(includes('class="expectation-value expected"'))
   end
 
   it 'adds an internal HTML index with context, test, and pending anchors' do
@@ -961,7 +1043,7 @@ describe 'PrD self-hosted reliability' do
         end
       SPEC
     )
-    valid = output.include?('Expect (ruby):') && output.include?('--- Code Block ---')
+    valid = output.include?('Expect (ruby code) to be equal to (ruby code)') && output.include?('--- Code Block ---')
     expect(valid).to(eq(true))
   end
 
@@ -1049,7 +1131,7 @@ describe 'PrD self-hosted reliability' do
       mode: :verbose
     )
     expect(output).to(includes('1 passed, 0 failed'))
-    expect(output).to(includes('Expect: %PDF-1.3'))
+    expect(output).to(includes('Expect %PDF-1.3'))
   end
 
   it 'reduces HtmlFormatter output in synthetic mode' do
@@ -1190,6 +1272,9 @@ describe 'PrD self-hosted reliability' do
     expect(content).to(includes('/Dest'))
     expect(content).to(includes('ctx-1'))
     expect(content).to(includes('test-1'))
+    reader = PDF::Reader.new(StringIO.new(content))
+    text = reader.pages.map(&:text).join("\n")
+    expect(text).to(includes('Expect 1 to be equal to 1'))
   end
 
   it 'renders Ferrum::Node subjects in PdfFormatter output' do
@@ -1279,7 +1364,10 @@ describe 'PrD self-hosted reliability' do
     )
     reader = PDF::Reader.new(StringIO.new(content))
     text = reader.pages.map(&:text).join("\n")
-    valid = text.include?('Expect (ruby)') && text.include?('Be equal to (ruby)')
+    valid =
+      text.include?('Expect (ruby code) to be equal to (ruby code)') &&
+      text.include?('Actual code (ruby)') &&
+      text.include?('Expected code (ruby)')
     expect(valid).to(eq(true))
   end
 

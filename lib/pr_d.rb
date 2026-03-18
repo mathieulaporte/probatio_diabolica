@@ -57,6 +57,8 @@ module PrD
       end
       @models_stack = []
       @hook_scopes = [{ before: [], after: [] }]
+      @subject_definition_stack = [nil]
+      reset_subject_memoization!
       if config_file
         if File.exist?(config_file)
           require File.expand_path(config_file)
@@ -81,9 +83,11 @@ module PrD
       @formatter.increment_level
       @models_stack.push(model) if model
       @hook_scopes << { before: [], after: [] }
+      @subject_definition_stack << @subject_definition_stack.last
 
       instance_eval(&block)
     ensure
+      @subject_definition_stack.pop
       @hook_scopes.pop
       @models_stack.pop if model
       @formatter.decrement_level
@@ -100,6 +104,7 @@ module PrD
         @models_stack.push(model) if model
         @formatter.it(description, &block) if @verbose
         @formatter.increment_level
+        reset_subject_memoization!
 
         before_hooks.each { |hook| instance_eval(&hook) }
         result = block.call
@@ -122,6 +127,7 @@ module PrD
         @formatter.end_it(description, &block)
         @formatter.decrement_level
         @models_stack.pop if model
+        reset_subject_memoization!
       end
 
       result
@@ -170,12 +176,23 @@ module PrD
 
     def subject(&block)
       if block_given?
-        @subject = block.call
-        @formatter.subject(@subject) if @verbose
-      else
-        @subject ||= nil
+        @subject_definition_stack[-1] = block
+        return nil
       end
-      @subject
+
+      evaluate_subject_value(render: true)
+    end
+
+    def subject!(&block)
+      raise ArgumentError, 'subject! requires a block.' unless block_given?
+
+      subject(&block)
+      if @verbose && @formatter.eager_subject_display_strategy == :on_definition
+        @formatter.subject(instance_eval(&block))
+      end
+      render_in_before = @verbose && @formatter.eager_subject_display_strategy == :on_evaluation
+      before { evaluate_subject_value(render: render_in_before) }
+      nil
     end
 
     def expect(*args, &block)
@@ -187,7 +204,7 @@ module PrD
         @formatter.expect(@actual)
       else
         @actual = subject
-        @formatter.expect('Le sujet')
+        @formatter.expect(@actual)
       end
       self
     end
@@ -224,6 +241,26 @@ module PrD
 
     def formatted_time
       Time.now.utc.strftime('%Y-%m-%d %H:%M:%S UTC')
+    end
+
+    def reset_subject_memoization!
+      @subject_memoized = false
+      @subject_value = nil
+    end
+
+    def evaluate_subject_value(render:)
+      subject_block = @subject_definition_stack.last
+      return nil if subject_block.nil?
+
+      unless @subject_memoized
+        @subject_value = instance_eval(&subject_block)
+        @subject_memoized = true
+        if render && @verbose && @formatter.subject_display_strategy == :on_evaluation
+          @formatter.subject(@subject_value)
+        end
+      end
+
+      @subject_value
     end
 
     def current_hook_scope
