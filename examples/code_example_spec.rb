@@ -13,7 +13,7 @@ describe 'Code tests examples' do
       subject { source_code(PrD::Matchers::AllMatcher.instance_method(:matches?)) }
 
       it "should always return a TestResult" do
-        expect.to satisfy('This method allways return a TestResult')
+        expect.to satisfy('This method always return a TestResult')
       end
     end
   end
