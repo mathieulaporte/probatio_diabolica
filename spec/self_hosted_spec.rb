@@ -331,6 +331,50 @@ describe 'PrD self-hosted reliability' do
     expect(output).to(includes('1 passed, 1 failed'))
   end
 
+  it 'continues to execute next example when a let evaluation fails' do
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
+      <<~SPEC
+        describe 'Let failure suite' do
+          let(:broken) { nil.count }
+
+          it 'fails on broken let access' do
+            expect(broken).to(eq(1))
+          end
+
+          it 'still executes next example' do
+            expect(1).to(eq(1))
+          end
+        end
+      SPEC
+    )
+
+    expect(output).to(includes("undefined method `count'"))
+    expect(output).to(includes('1 passed, 1 failed'))
+  end
+
+  it 'continues to execute next context when one context raises' do
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
+      <<~SPEC
+        describe 'Context continuation suite' do
+          context 'broken context' do
+            raise 'boom in context'
+          end
+
+          context 'healthy context' do
+            it 'still runs' do
+              expect(1).to(eq(1))
+            end
+          end
+        end
+      SPEC
+    )
+
+    expect(output).to(includes("Context 'broken context' failed"))
+    expect(output).to(includes('1 passed, 1 failed'))
+  end
+
   context 'when CLI receives an unknown formatter type' do
     subject { capture_cli('bundle exec ruby bin/prd spec/self_hosted_spec.rb -t unknown') }
 

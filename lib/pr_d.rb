@@ -105,6 +105,8 @@ module PrD
       @subject_definition_stack << @subject_definition_stack.last
 
       instance_eval(&block)
+    rescue StandardError => e
+      report_context_execution_error(e, description:)
     ensure
       @subject_definition_stack.pop
       @hook_scopes.pop
@@ -155,19 +157,36 @@ module PrD
     end
 
     def let(name, &block)
-      block_result = block.call
+      block_result = nil
+      let_error = nil
+
+      begin
+        block_result = block.call
+      rescue StandardError => e
+        let_error = e
+      end
 
       if @verbose
+        rendered_value =
+          if let_error
+            "Error while evaluating let(:#{name}): #{let_error.class}: #{let_error.message}"
+          else
+            block_result
+          end
         formatter_let_arity = @formatter.method(:let).arity
         if formatter_let_arity == 1
-          @formatter.let(block_result)
+          @formatter.let(rendered_value)
         else
-          @formatter.let(name, block_result)
+          @formatter.let(name, rendered_value)
         end
       end
 
       instance_variable_set("@#{name}", block_result)
       define_singleton_method(name) do
+        if let_error
+          raise let_error.class, let_error.message, let_error.backtrace
+        end
+
         record_let_access(name, block_result, callsite: caller_locations(1, 1).first)
         block_result
       end
@@ -420,6 +439,13 @@ module PrD
       $stderr.puts "An error occurred while executing test: #{error.message}"
       $stderr.puts error.backtrace.join("\n")
       @formatter.failure_result("Test failed at #{formatted_time} with error message: #{error.message}")
+      @failed_count += 1
+    end
+
+    def report_context_execution_error(error, description:)
+      $stderr.puts "An error occurred while executing context '#{description}': #{error.message}"
+      $stderr.puts error.backtrace.join("\n")
+      @formatter.failure_result("Context '#{description}' failed at #{formatted_time} with error message: #{error.message}")
       @failed_count += 1
     end
 
