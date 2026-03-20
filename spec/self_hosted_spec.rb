@@ -302,6 +302,35 @@ describe 'PrD self-hosted reliability' do
     expect(output).to(includes('No tests found. Provide at least one spec content to run.'))
   end
 
+  it 'continues to execute remaining spec sources when one source raises' do
+    formatter, io = build_formatter_io(PrD::Formatters::SimpleFormatter)
+    runtime = PrD::Runtime.new(formatter:, output_dir: nil, config_file: nil)
+
+    capture_stderr do
+      runtime.run(
+        [
+          <<~SPEC,
+            describe 'Broken source' do
+              raise 'boom in source'
+            end
+          SPEC
+          <<~SPEC
+            describe 'Healthy source' do
+              it 'still runs' do
+                expect(1).to(eq(1))
+              end
+            end
+          SPEC
+        ]
+      )
+    end
+
+    io.rewind
+    output = io.read
+    expect(output).to(includes('Spec source #1 failed'))
+    expect(output).to(includes('1 passed, 1 failed'))
+  end
+
   context 'when CLI receives an unknown formatter type' do
     subject { capture_cli('bundle exec ruby bin/prd spec/self_hosted_spec.rb -t unknown') }
 

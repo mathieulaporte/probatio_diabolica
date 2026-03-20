@@ -119,7 +119,7 @@ module PrD
       after_hooks = collect_after_hooks
 
       begin
-        description ||= @tests.split("\n")[block.source_location.last - 1].strip
+        description ||= infer_example_description(block)
         @models_stack.push(model) if model
         @formatter.it(description, &block) if @verbose
         @formatter.increment_level
@@ -268,7 +268,14 @@ module PrD
       raise ArgumentError, 'No tests found. Provide at least one spec content to run.' if tests.nil? || tests.empty?
 
       @tests = tests
-      @tests.each { |test| instance_eval(test) }
+      @tests.each_with_index do |test_source, index|
+        @current_test_source = test_source
+        instance_eval(test_source)
+      rescue StandardError => e
+        report_spec_source_execution_error(e, source_index: index + 1)
+      ensure
+        @current_test_source = nil
+      end
     rescue StandardError => e
       $stderr.puts "An error occurred while running tests: #{e.message}"
       $stderr.puts e.backtrace.join("\n")
@@ -377,6 +384,18 @@ module PrD
       @hook_scopes.last
     end
 
+    def infer_example_description(block)
+      return nil if block.nil?
+      return nil if @current_test_source.nil?
+
+      line_number = block.source_location&.last
+      return nil if line_number.nil?
+
+      @current_test_source.lines[line_number - 1]&.strip
+    rescue StandardError
+      nil
+    end
+
     def collect_before_hooks
       @hook_scopes.flat_map { |scope| scope[:before] }
     end
@@ -401,6 +420,13 @@ module PrD
       $stderr.puts "An error occurred while executing test: #{error.message}"
       $stderr.puts error.backtrace.join("\n")
       @formatter.failure_result("Test failed at #{formatted_time} with error message: #{error.message}")
+      @failed_count += 1
+    end
+
+    def report_spec_source_execution_error(error, source_index:)
+      $stderr.puts "An error occurred while loading spec source ##{source_index}: #{error.message}"
+      $stderr.puts error.backtrace.join("\n")
+      @formatter.failure_result("Spec source ##{source_index} failed at #{formatted_time} with error message: #{error.message}")
       @failed_count += 1
     end
 
