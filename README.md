@@ -15,7 +15,7 @@ This project is experimental and not production-ready.
 - `describe`, `context`, `it`, `pending`, `let`, `subject`, `subject!`
 - `before`, `after`
 - `expect(...).to(...)` and `expect(...).not_to(...)`
-- standard matchers (`eq`, `be`, `includes`, `have`, `all`)
+- standard matchers (`eq`, `be`, `empty`, `gt`, `gte`, `lt`, `lte`, `includes`, `have`, `all`)
 - LLM matcher `satisfy(...)` to validate natural-language conditions
 
 Tests are evaluated with `instance_eval` (not through RSpec).
@@ -170,6 +170,8 @@ end
 - `expect(actual).not_to matcher`
 - `expect { |subject| ... }.to matcher`
 - `expect.to matcher` (uses `subject` / `subject!`)
+- In verbose formatter output, when `actual` or matcher `expected` come from a `let`, the expectation sentence uses the `let` name.
+- A failed expectation reports a detailed message (with names/values) in `Justification`.
 
 ### Hooks (`before` / `after`)
 
@@ -224,10 +226,21 @@ end
 
 - `eq(expected)` equality with `==`
 - `be(expected)` object identity (`equal?`)
+- `empty` checks `empty?` on the actual value
+- `gt(expected)` strictly greater than (`>`)
+- `gte(expected)` greater than or equal (`>=`)
+- `lt(expected)` strictly less than (`<`)
+- `lte(expected)` less than or equal (`<=`)
 - `includes(expected)` inclusion for `String`, `Array`, `File`, `PDF::Reader`
 - `have(expected)` alias inclusion via `include?`
 - `all(proc)` checks all elements against a block
-- `satisfy(natural_language_condition)` LLM-based validation
+- `satisfy(natural_language_condition)` LLM-based validation (supports text, single image `File`, or array of image files)
+
+Example:
+
+```ruby
+expect(new_image_size).to be gt(0)
+```
 
 ### Browser helpers (Ferrum)
 

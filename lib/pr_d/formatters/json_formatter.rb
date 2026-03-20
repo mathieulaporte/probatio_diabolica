@@ -68,9 +68,11 @@ module PrD
         add_event(type: 'pending', description: description)
       end
 
-      def expect(expectation)
+      def expect(expectation, label: nil)
         return if synthetic?
-        add_event(type: 'expect', value: serialize(expectation))
+        payload = { value: serialize(expectation) }
+        payload[:label] = label unless label.nil?
+        add_event(type: 'expect', **payload)
       end
 
       def to
@@ -85,7 +87,12 @@ module PrD
 
       def matcher(matcher, sources: nil)
         return if synthetic?
-        add_event(type: 'matcher', matcher: matcher.class.to_s, expected: serialize(matcher.expected))
+        payload = {
+          matcher: matcher.class.to_s,
+          expected: serialize(matcher.expected)
+        }
+        payload[:expected_label] = matcher.expected_label if matcher.respond_to?(:expected_label) && matcher.expected_label
+        add_event(type: 'matcher', **payload)
       end
 
       def output(message, color = nil, figure: nil, indent: 0)

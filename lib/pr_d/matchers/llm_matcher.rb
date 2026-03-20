@@ -8,6 +8,7 @@ module PrD
       DSL_HELPER_NAME = :satisfy
       DEFAULT_TIMEOUT_SECONDS = 30
       DEFAULT_RETRIES = 1
+      SUPPORTED_IMAGE_EXTENSIONS = %w[.png .jpg .jpeg].freeze
 
       class TestResult < RubyLLM::Schema
         string :justification
@@ -26,12 +27,14 @@ module PrD
           return build_runtime_result(text(@expected, actual))
         elsif defined?(PrD::Code) && actual.is_a?(PrD::Code)
           return build_runtime_result(text(@expected, actual.source))
-        elsif actual.is_a?(File)
-          if actual.path.end_with?('.png', '.jpg', '.jpeg')
-            return build_runtime_result(image(@expected, actual))
+        elsif image_files_array?(actual)
+          return build_runtime_result(images(@expected, actual))
+        elsif file_like?(actual)
+          if image_file?(actual)
+            return build_runtime_result(images(@expected, [actual]))
           else
             content = actual.read
-            actual.rewind
+            actual.rewind if actual.respond_to?(:rewind)
             return build_runtime_result(text(@expected, content))
           end
         else
@@ -74,21 +77,44 @@ module PrD
         ask_with_retry("The current text : #{actual} \nDoes it satisfy the condition :\n\n#{expected}, respond in json ?")
       end
 
-      def image(expected, actual)
-        Tempfile.create(['image', File.extname(actual.path)]) do |tempfile|
-          tempfile.binmode
-          tempfile.write(actual.read)
-          tempfile.rewind
-          actual.rewind
+      def images(expected, actual_images)
+        tempfiles = build_image_tempfiles(actual_images)
 
-          @llm_client
-            .with_instructions(
-              'You are a helpful assistant that verifies conditions on images. You will receive an image and a condition to check. First, provide your reasoning in the <justification> field. Then, indicate whether the condition is satisfied in the <satisfy> field, using either true or false.'
-            )
-            .with_params(response_format: { type: 'json_object' })
-            .with_schema(TestResult)
-          ask_with_retry("Does this image satisfy the condition :\n\n#{expected} ?\nRespond in json.", with: tempfile.path)
+        @llm_client
+          .with_instructions(
+            'You are a helpful assistant that verifies conditions on images. Do not assume how things can be, use only what is provided. You will receive one or more images and a condition to check. First, provide your reasoning in the <justification> field. Then, indicate whether the condition is satisfied in the <satisfy> field, using either true or false.'
+          )
+          .with_params(response_format: { type: 'json_object' })
+          .with_schema(TestResult)
+        ask_with_retry("Do these images satisfy the condition :\n\n#{expected} ?\nRespond in json.", with: tempfiles.map(&:path))
+      ensure
+        tempfiles&.each(&:close!)
+      end
+
+      def build_image_tempfiles(actual_images)
+        actual_images.map do |actual_image|
+          actual_image.rewind if actual_image.respond_to?(:rewind)
+
+          Tempfile.new(['image', File.extname(actual_image.path)]).tap do |tempfile|
+            tempfile.binmode
+            tempfile.write(actual_image.read)
+            tempfile.rewind
+          end
+        ensure
+          actual_image.rewind if actual_image.respond_to?(:rewind)
         end
+      end
+
+      def image_files_array?(value)
+        value.is_a?(Array) && !value.empty? && value.all? { |entry| file_like?(entry) && image_file?(entry) }
+      end
+
+      def file_like?(value)
+        value.is_a?(File) || value.is_a?(Tempfile)
+      end
+
+      def image_file?(file)
+        SUPPORTED_IMAGE_EXTENSIONS.include?(File.extname(file.path).downcase)
       end
     end
   end

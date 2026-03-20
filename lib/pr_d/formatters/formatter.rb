@@ -66,7 +66,7 @@ module PrD
         raise NotImplementedError, "#{self.class} must implement #pending"
       end
 
-      def expect(expectation)
+      def expect(expectation, label: nil)
         raise NotImplementedError, "#{self.class} must implement #expect"
       end
 
@@ -112,6 +112,8 @@ module PrD
 
       def serialize(value)
         value = apply_display_adapter(value)
+        return 'nil' if value.nil?
+
         serializer = @serializers[value.class]
         return serializer.call(value) if serializer
         return ferrum_node_summary(value) if ferrum_node?(value)
@@ -414,12 +416,22 @@ module PrD
           ['be equal to', matcher.expected]
         when Matchers::BeMatcher
           ['be the same object as', matcher.expected]
+        when Matchers::EmptyMatcher
+          ['be empty', NO_EXPECTED_VALUE]
+        when Matchers::GtMatcher
+          ['be greater than', matcher.expected]
+        when Matchers::GteMatcher
+          ['be greater than or equal to', matcher.expected]
         when Matchers::IncludesMatcher
           ['include', matcher.expected]
         when Matchers::HaveMatcher
           ['have', matcher.expected]
+        when Matchers::LtMatcher
+          ['be less than', matcher.expected]
         when Matchers::LlmMatcher
           ['satisfy condition', matcher.expected]
+        when Matchers::LteMatcher
+          ['be less than or equal to', matcher.expected]
         when Matchers::AllMatcher
           if sources
             code_line = matcher.expected.source_location.last.to_i

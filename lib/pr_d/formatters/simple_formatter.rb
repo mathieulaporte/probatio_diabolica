@@ -74,9 +74,9 @@ module PrD
         output('⚠ This test is pending and has not been executed.', :yellow)
       end
 
-      def expect(expectation)
+      def expect(expectation, label: nil)
         return if synthetic?
-        @pending_expectation = { actual: expectation, operator: :to }
+        @pending_expectation = { actual: expectation, actual_label: label, operator: :to }
       end
 
       def to
@@ -97,7 +97,8 @@ module PrD
       def matcher(matcher, sources: nil)
         return if synthetic?
         matcher_label, expected_value = matcher_sentence_parts(matcher, sources:)
-        render_expectation_sentence(matcher_label, expected_value)
+        expected_label = matcher.respond_to?(:expected_label) ? matcher.expected_label : nil
+        render_expectation_sentence(matcher_label, expected_value, expected_label:)
       ensure
         @pending_expectation = nil
       end
@@ -203,13 +204,14 @@ module PrD
         "#{INDENT * (@level + indent_incr)}#{message}"
       end
 
-      def render_expectation_sentence(matcher_label, expected_value)
+      def render_expectation_sentence(matcher_label, expected_value, expected_label: nil)
         actual_provided = @pending_expectation && @pending_expectation.key?(:actual)
         actual = actual_provided ? @pending_expectation[:actual] : nil
         operator = expectation_operator_text(@pending_expectation && @pending_expectation[:operator])
-        actual_text = actual_provided ? expectation_inline_value(actual) : '(subject)'
+        actual_label = actual_provided ? @pending_expectation[:actual_label] : nil
+        actual_text = actual_provided ? (actual_label || expectation_inline_value(actual)) : '(subject)'
         expected_present = !expected_value.equal?(NO_EXPECTED_VALUE)
-        expected_text = expected_present ? expectation_inline_value(expected_value) : nil
+        expected_text = expected_present ? (expected_label || expectation_inline_value(expected_value)) : nil
 
         sentence = +"Expect #{actual_text} #{operator} #{matcher_label}"
         sentence << " #{expected_text}" unless expected_text.nil?

@@ -24,12 +24,12 @@ class CompositeFormatter
     @formatters = formatters
   end
 
-  def method_missing(name, *args, &block)
+  def method_missing(name, *args, **kwargs, &block)
     handled = false
     @formatters.each do |formatter|
       next unless formatter.respond_to?(name)
 
-      formatter.public_send(name, *args, &block)
+      formatter.public_send(name, *args, **kwargs, &block)
       handled = true
     end
 

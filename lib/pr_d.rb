@@ -26,33 +26,52 @@ module PrD
     DEFAULT_MATCHERS = [
       PrD::Matchers::AllMatcher,
       PrD::Matchers::BeMatcher,
+      PrD::Matchers::EmptyMatcher,
       PrD::Matchers::EqMatcher,
+      PrD::Matchers::GtMatcher,
+      PrD::Matchers::GteMatcher,
       PrD::Matchers::HaveMatcher,
       PrD::Matchers::IncludesMatcher,
-      PrD::Matchers::LlmMatcher
+      PrD::Matchers::LtMatcher,
+      PrD::Matchers::LlmMatcher,
+      PrD::Matchers::LteMatcher
     ].freeze
+    LET_ACCESS_HISTORY_LIMIT = 64
 
     def initialize(output_dir:, formatter: nil, matchers: [], verbose: true, config_file: nil)
       @actual = nil
+      @actual_label = nil
       @passed_count = 0
       @failed_count = 0
       @formatter = formatter || PrD::Formatters::SimpleFormatter.new
       @output_dir = output_dir
       @verbose = verbose
+      @recent_let_accesses = []
       (DEFAULT_MATCHERS + matchers).each do |matcher|
         define_singleton_method(matcher::DSL_HELPER_NAME) do |*args|
+          callsite = caller_locations(1, 1).first
+
           if matcher == PrD::Matchers::LlmMatcher
             model = current_model
             raise ArgumentError, 'LLM matcher requires a model. Set model: on context/it before using satisfy().' if model.nil?
 
             begin
-              matcher.new(*args, client: RubyLLM.chat(model: model))
+              matcher_instance = matcher.new(*args, client: RubyLLM.chat(model: model))
             rescue StandardError => e
               raise ArgumentError, "Unable to initialize LLM client for model '#{model}': #{e.message}"
             end
+          elsif matcher == PrD::Matchers::BeMatcher && args.length == 1 && args.first.is_a?(PrD::Matchers::Matcher)
+            matcher_instance = args.first
           else
-            matcher.new(*args)
+            matcher_instance = matcher.new(*args)
           end
+
+          if args.length == 1 && matcher_instance.respond_to?(:expected_label=)
+            expected_label = consume_let_label_for_value(args.first, callsite:)
+            matcher_instance.expected_label = expected_label unless expected_label.nil?
+          end
+
+          matcher_instance
         end
       end
       @models_stack = []
@@ -105,6 +124,7 @@ module PrD
         @formatter.it(description, &block) if @verbose
         @formatter.increment_level
         reset_subject_memoization!
+        clear_recent_let_accesses!
 
         before_hooks.each { |hook| instance_eval(&hook) }
         result = block.call
@@ -128,6 +148,7 @@ module PrD
         @formatter.decrement_level
         @models_stack.pop if model
         reset_subject_memoization!
+        clear_recent_let_accesses!
       end
 
       result
@@ -146,7 +167,10 @@ module PrD
       end
 
       instance_variable_set("@#{name}", block_result)
-      define_singleton_method(name) { block_result }
+      define_singleton_method(name) do
+        record_let_access(name, block_result, callsite: caller_locations(1, 1).first)
+        block_result
+      end
     end
 
     def before(&block)
@@ -164,14 +188,31 @@ module PrD
     def to(matcher)
       @formatter.to
       @formatter.matcher(matcher)
-      matcher.matches?(@actual)
+      result = matcher.matches?(@actual)
+      return result if result.pass
+
+      TestResult.new(
+        comment: merge_expectation_comments(
+          build_expectation_failure_message(matcher, negated: false),
+          result.comment
+        ),
+        pass: false
+      )
     end
 
     def not_to(matcher)
       @formatter.not_to
       @formatter.matcher(matcher)
       result = matcher.matches?(@actual)
-      TestResult.new(comment: result.comment, pass: !result.pass)
+      return TestResult.new(comment: result.comment, pass: true) unless result.pass
+
+      TestResult.new(
+        comment: merge_expectation_comments(
+          build_expectation_failure_message(matcher, negated: true),
+          result.comment
+        ),
+        pass: false
+      )
     end
 
     def subject(&block)
@@ -196,15 +237,21 @@ module PrD
     end
 
     def expect(*args, &block)
+      callsite = caller_locations(1, 1).first
+
       if args.length >= 1
         @actual = args.first
-        @formatter.expect(@actual)
+        @actual_label = consume_let_label_for_value(@actual, callsite:)
+        @formatter.expect(@actual, label: @actual_label)
       elsif block_given?
         @actual = block.call(subject)
-        @formatter.expect(@actual)
+        @actual_label = nil
+        @formatter.expect(@actual, label: nil)
       else
         @actual = subject
-        @formatter.expect(@actual)
+        @actual_label = nil
+        # Avoid to display the subject value twice
+        @formatter.expect('The subject', label: nil)
       end
       self
     end
@@ -246,6 +293,69 @@ module PrD
     def reset_subject_memoization!
       @subject_memoized = false
       @subject_value = nil
+    end
+
+    def clear_recent_let_accesses!
+      @recent_let_accesses = []
+    end
+
+    def record_let_access(name, value, callsite: nil)
+      @recent_let_accesses << {
+        name: name.to_s,
+        value: value,
+        path: callsite&.path,
+        lineno: callsite&.lineno
+      }
+      @recent_let_accesses.shift if @recent_let_accesses.length > LET_ACCESS_HISTORY_LIMIT
+      nil
+    end
+
+    def consume_let_label_for_value(value, callsite:)
+      return nil if @recent_let_accesses.nil? || @recent_let_accesses.empty?
+
+      index = preferred_let_access_index(value, callsite:)
+      return nil if index.nil?
+
+      @recent_let_accesses.delete_at(index)[:name]
+    end
+
+    def preferred_let_access_index(value, callsite:)
+      same_line = find_let_access_index(value) do |entry|
+        same_path = !callsite.nil? && entry[:path] == callsite.path
+        same_line = !callsite.nil? && entry[:lineno] == callsite.lineno
+        same_path && same_line
+      end
+      return same_line unless same_line.nil?
+
+      near_line = find_let_access_index(value) do |entry|
+        next false if callsite.nil?
+        next false unless entry[:path] == callsite.path
+
+        (entry[:lineno] - callsite.lineno).abs <= 5
+      end
+      return near_line unless near_line.nil?
+
+      nil
+    end
+
+    def find_let_access_index(value)
+      (@recent_let_accesses.length - 1).downto(0) do |index|
+        entry = @recent_let_accesses[index]
+        next unless same_runtime_value?(entry[:value], value)
+        next unless yield(entry)
+
+        return index
+      end
+      nil
+    end
+
+    def same_runtime_value?(left, right)
+      return true if left.equal?(right)
+      return false unless left.class == right.class
+
+      left == right
+    rescue StandardError
+      false
     end
 
     def evaluate_subject_value(render:)
@@ -310,6 +420,50 @@ module PrD
           @formatter.success_result("Test passed successfully at #{formatted_time}")
         end
       end
+    end
+
+    def build_expectation_failure_message(matcher, negated:)
+      matcher_label, expected_value = matcher_sentence_parts_for_failure(matcher)
+      message = +"Expect #{expectation_operand_text(@actual, label: @actual_label)}"
+      message << (negated ? ' not to ' : ' to ')
+      message << matcher_label
+
+      unless expected_value.equal?(PrD::Formatters::Formatter::NO_EXPECTED_VALUE)
+        expected_label = matcher.respond_to?(:expected_label) ? matcher.expected_label : nil
+        message << " #{expectation_operand_text(expected_value, label: expected_label)}"
+      end
+
+      message
+    end
+
+    def matcher_sentence_parts_for_failure(matcher)
+      return ['match', matcher.expected] unless @formatter.respond_to?(:matcher_sentence_parts, true)
+
+      @formatter.send(:matcher_sentence_parts, matcher, sources: nil)
+    rescue StandardError
+      ['match', matcher.expected]
+    end
+
+    def expectation_operand_text(value, label:)
+      value_text = expectation_value_text(value)
+      return value_text if label.nil? || label.to_s.empty?
+
+      "#{label} (=#{value_text})"
+    end
+
+    def expectation_value_text(value)
+      return "(#{value.language} code)" if defined?(PrD::Code) && value.is_a?(PrD::Code)
+      return value.inspect unless @formatter.respond_to?(:serialize, true)
+
+      @formatter.send(:serialize, value).to_s
+    rescue StandardError
+      value.inspect
+    end
+
+    def merge_expectation_comments(failure_message, matcher_comment)
+      return failure_message if matcher_comment.nil? || matcher_comment.to_s.strip.empty?
+
+      "#{failure_message}. #{matcher_comment}"
     end
 
   end

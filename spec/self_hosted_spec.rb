@@ -687,6 +687,39 @@ describe 'PrD self-hosted reliability' do
     expect(valid).to(eq(true))
   end
 
+  it 'sends all images when LLM matcher receives an image array' do
+    fake_response = Struct.new(:content).new({ 'justification' => 'Checked images', 'satisfy' => true })
+    sent_attachments = nil
+    attachments_available_during_ask = false
+    fake_client = Object.new
+    fake_client.define_singleton_method(:with_instructions) { |_msg| self }
+    fake_client.define_singleton_method(:with_params) { |_params| self }
+    fake_client.define_singleton_method(:with_schema) { |_schema| self }
+    fake_client.define_singleton_method(:ask) do |_prompt, **kwargs|
+      sent_attachments = kwargs[:with]
+      attachments_available_during_ask = sent_attachments.all? { |path| File.exist?(path) }
+      fake_response
+    end
+
+    first_image = build_tiny_png_file
+    second_image = build_tiny_png_file
+
+    begin
+      matcher = PrD::Matchers::LlmMatcher.new('condition', client: fake_client, timeout_seconds: 1, retries: 0)
+      result = matcher.matches?([first_image, second_image])
+
+      expect(result.pass).to(eq(true))
+      expect(result.comment).to(eq('Checked images'))
+      expect(sent_attachments.is_a?(Array)).to(eq(true))
+      expect(sent_attachments.length).to(eq(2))
+      expect(sent_attachments.uniq.length).to(eq(2))
+      expect(attachments_available_during_ask).to(eq(true))
+    ensure
+      first_image.close!
+      second_image.close!
+    end
+  end
+
   it 'returns PrD::Code from source_code helper when available' do
     prism_available = true
     begin
@@ -913,6 +946,8 @@ describe 'PrD self-hosted reliability' do
     json = JSON.parse(json_payload)
     let_event = json['events'].find { |event| event['type'] == 'let' }
     subject_event = json['events'].find { |event| event['type'] == 'subject' }
+    expect_event = json['events'].find { |event| event['type'] == 'expect' }
+    matcher_event = json['events'].find { |event| event['type'] == 'matcher' }
     let_payload = let_event && let_event['value']
     subject_payload = subject_event && subject_event['value']
 
@@ -921,6 +956,8 @@ describe 'PrD self-hosted reliability' do
     expect(let_payload.dig('snippet', 'type')).to(eq('code'))
     expect(let_payload.dig('snippet', 'language')).to(eq('text'))
     expect(subject_payload['heading']).to(eq('Captured at'))
+    expect(expect_event['label']).to(eq('payload'))
+    expect(matcher_event['expected_label']).to(eq('payload'))
   end
 
   it 'serializes PrD::Code values in JsonFormatter output' do
@@ -1043,8 +1080,55 @@ describe 'PrD self-hosted reliability' do
         end
       SPEC
     )
-    valid = output.include?('Expect (ruby code) to be equal to (ruby code)') && output.include?('--- Code Block ---')
+    valid = output.include?('Expect snippet to be equal to snippet') && output.include?('--- Code Block ---')
     expect(valid).to(eq(true))
+  end
+
+  it 'renders let names in SimpleFormatter expectation sentences' do
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
+      <<~SPEC
+        describe 'Simple let names suite' do
+          let(:new_image_size) { 92_853 }
+          let(:min_size) { 0 }
+
+          it 'renders let labels in expectation sentence' do
+            expect(new_image_size).to be gt(min_size)
+          end
+        end
+      SPEC
+    )
+    expect(output).to(includes('Expect new_image_size to be greater than min_size'))
+  end
+
+  it 'renders nil explicitly in SimpleFormatter expectation sentences' do
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
+      <<~SPEC
+        describe 'Simple nil suite' do
+          it 'renders nil values' do
+            expect(nil).to(eq(nil))
+          end
+        end
+      SPEC
+    )
+    expect(output).to(includes('Expect nil to be equal to nil'))
+  end
+
+  it 'prints failing expectation details with let name and value' do
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
+      <<~SPEC
+        describe 'Simple failing expectation details suite' do
+          let(:neisvac_count) { 0 }
+
+          it 'renders a detailed failing expectation message' do
+            expect(neisvac_count).to(eq(2))
+          end
+        end
+      SPEC
+    )
+    expect(output).to(includes('Justification: Expect neisvac_count (=0) to be equal to 2'))
   end
 
   it 'renders Ferrum::Node subjects in SimpleFormatter output' do
@@ -1229,6 +1313,56 @@ describe 'PrD self-hosted reliability' do
     expect(html).to(includes('class="code-block"'))
   end
 
+  it 'renders let names in HtmlFormatter expectation sentences' do
+    html = run_runtime_with_formatter(
+      PrD::Formatters::HtmlFormatter,
+      <<~SPEC
+        describe 'HTML let names suite' do
+          let(:new_image_size) { 92_853 }
+          let(:min_size) { 0 }
+
+          it 'renders let labels in expectation sentence' do
+            expect(new_image_size).to be gt(min_size)
+          end
+        end
+      SPEC
+    )
+    expect(html).to(includes('class="expectation-value actual">new_image_size</span>'))
+    expect(html).to(includes('class="expectation-value expected">min_size</span>'))
+  end
+
+  it 'renders nil explicitly in HtmlFormatter expectation sentences' do
+    html = run_runtime_with_formatter(
+      PrD::Formatters::HtmlFormatter,
+      <<~SPEC
+        describe 'HTML nil suite' do
+          it 'renders nil values' do
+            expect(nil).to(eq(nil))
+          end
+        end
+      SPEC
+    )
+    expect(html).to(includes('class="expectation-value actual">nil</span>'))
+    expect(html).to(includes('class="expectation-value expected">nil</span>'))
+  end
+
+  it 'renders failing expectation details in HtmlFormatter justification' do
+    html = run_runtime_with_formatter(
+      PrD::Formatters::HtmlFormatter,
+      <<~SPEC
+        describe 'HTML failing expectation details suite' do
+          let(:neisvac_count) { 0 }
+
+          it 'renders detailed failure message' do
+            expect(neisvac_count).to(eq(2))
+          end
+        end
+      SPEC
+    )
+    expect(html).to(includes('Justification:'))
+    expect(html).to(includes('Expect neisvac_count (=0) to be equal to 2'))
+  end
+
   it 'produces compact JSON formatter output in synthetic mode' do
     spec_source = <<~SPEC
       describe 'JSON synthetic suite' do
@@ -1349,6 +1483,41 @@ describe 'PrD self-hosted reliability' do
     expect(text).to(includes('Language: html'))
   end
 
+  it 'renders let names in PdfFormatter expectation sentences' do
+    content = run_runtime_with_formatter(
+      PrD::Formatters::PdfFormatter,
+      <<~SPEC
+        describe 'PDF let names suite' do
+          let(:new_image_size) { 92_853 }
+          let(:min_size) { 0 }
+
+          it 'renders let labels in expectation sentence' do
+            expect(new_image_size).to be gt(min_size)
+          end
+        end
+      SPEC
+    )
+    reader = PDF::Reader.new(StringIO.new(content))
+    text = reader.pages.map(&:text).join("\n")
+    expect(text).to(includes('Expect new_image_size to be greater than min_size'))
+  end
+
+  it 'renders nil explicitly in PdfFormatter expectation sentences' do
+    content = run_runtime_with_formatter(
+      PrD::Formatters::PdfFormatter,
+      <<~SPEC
+        describe 'PDF nil suite' do
+          it 'renders nil values' do
+            expect(nil).to(eq(nil))
+          end
+        end
+      SPEC
+    )
+    reader = PDF::Reader.new(StringIO.new(content))
+    text = reader.pages.map(&:text).join("\n")
+    expect(text).to(includes('Expect nil to be equal to nil'))
+  end
+
   it 'renders code blocks with language markers in PdfFormatter output' do
     content = run_runtime_with_formatter(
       PrD::Formatters::PdfFormatter,
@@ -1365,7 +1534,7 @@ describe 'PrD self-hosted reliability' do
     reader = PDF::Reader.new(StringIO.new(content))
     text = reader.pages.map(&:text).join("\n")
     valid =
-      text.include?('Expect (ruby code) to be equal to (ruby code)') &&
+      text.include?('Expect snippet to be equal to snippet') &&
       text.include?('Actual code (ruby)') &&
       text.include?('Expected code (ruby)')
     expect(valid).to(eq(true))
