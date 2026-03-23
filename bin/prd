@@ -7,6 +7,7 @@ rescue LoadError
 end
 require 'optparse'
 require 'fileutils'
+require 'stringio'
 
 FORMATTERS = {
   'simple' => { klass: PrD::Formatters::SimpleFormatter, extension: '.txt', binary: false },
@@ -133,7 +134,7 @@ serializers = {
 
 destinations =
   if out_base.nil?
-    [{ io: STDOUT, formatter: FORMATTERS.fetch(formatter_types.first)[:klass].new(io: STDOUT, serializers:, mode: mode.to_sym) }]
+    [{ io: STDOUT, formatter_type: formatter_types.first }]
   else
     output_dir = File.dirname(out_base)
     FileUtils.mkdir_p(output_dir)
@@ -141,21 +142,44 @@ destinations =
       config = FORMATTERS.fetch(type)
       output_path = "#{out_base}#{config[:extension]}"
       io = File.open(output_path, config[:binary] ? 'wb' : 'w')
-      { io:, formatter: config[:klass].new(io:, serializers:, mode: mode.to_sym) }
+      { io:, formatter_type: type }
     end
   end
 
-formatter =
-  if destinations.length == 1
-    destinations.first[:formatter]
+subject_display_strategy =
+  if formatter_types.length == 1
+    FORMATTERS.fetch(formatter_types.first)[:klass].new(io: StringIO.new, serializers:, mode: mode.to_sym).subject_display_strategy
   else
-    CompositeFormatter.new(destinations.map { |destination| destination[:formatter] })
+    nil
   end
 
+eager_subject_display_strategy =
+  if formatter_types.length == 1
+    FORMATTERS.fetch(formatter_types.first)[:klass].new(io: StringIO.new, serializers:, mode: mode.to_sym).eager_subject_display_strategy
+  else
+    nil
+  end
+
+collector = PrD::ReportCollector.new(
+  io: StringIO.new,
+  serializers: serializers,
+  mode: mode.to_sym,
+  subject_display_strategy: subject_display_strategy,
+  eager_subject_display_strategy: eager_subject_display_strategy
+)
+
 runtime_output_dir = out_base.nil? ? nil : File.dirname(out_base)
-runtime = PrD::Runtime.new(formatter:, output_dir: runtime_output_dir, config_file: options[:config])
+runtime = PrD::Runtime.new(formatter: collector, output_dir: runtime_output_dir, config_file: options[:config])
 runtime.run(tests)
 exit_status = runtime.success? ? 0 : 1
+
+destinations.each do |destination|
+  io = destination[:io]
+  type = destination[:formatter_type]
+  formatter = FORMATTERS.fetch(type)[:klass].new(io:, serializers:, mode: mode.to_sym)
+  PrD::ReportRenderer.render(collector.model, formatter)
+end
+
 destinations.each do |destination|
   io = destination[:io]
   io.close if io != STDOUT

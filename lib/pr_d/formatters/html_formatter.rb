@@ -12,9 +12,11 @@ module PrD
         @anchor_counters = Hash.new(0)
         @rouge_formatter = Rouge::Formatters::HTMLLegacy.new(css_class: 'highlight')
         @pending_expectation = nil
+        @open_let_group_level = nil
       end
 
       def context(message)
+        close_let_group_if_open
         anchor_id = next_anchor_id('ctx')
         add_index_entry(type: :context, label: message, level: @level, anchor_id:)
         @content << "<h2 class=\"context\" id=\"#{anchor_id}\">#{escape(message)}</h2>"
@@ -37,6 +39,7 @@ module PrD
       end
 
       def it(description = nil, &block)
+        close_let_group_if_open
         @current_test_title = description.to_s
         @pending_expectation = nil
         anchor_id = next_anchor_id('test')
@@ -56,6 +59,7 @@ module PrD
 
       def let(name_or_value, value = MISSING_VALUE)
         return if synthetic?
+        start_let_group_if_needed
         name, rendered_value = named_value_arguments(name_or_value, value)
         label = name.nil? ? 'Let' : "Let(:#{name})"
         render_collapsible_let_block(label, rendered_value)
@@ -63,6 +67,7 @@ module PrD
 
       def subject(subject)
         return if synthetic?
+        close_let_group_if_open
         render_value_block('Subject', subject)
       end
 
@@ -75,6 +80,7 @@ module PrD
       end
 
       def pending(description = nil)
+        close_let_group_if_open
         pending_label = description || 'Pending test'
         anchor_id = next_anchor_id('pending')
         add_index_entry(type: :pending, label: pending_label, level: @level, anchor_id:)
@@ -122,10 +128,21 @@ module PrD
       end
 
       def flush
+        close_let_group_if_open
         @io << document_opening
         @io << render_index
         @io << @content
         @io << '</main></body></html>'
+        super
+      end
+
+      def increment_level
+        close_let_group_if_open if @open_let_group_level == @level
+        super
+      end
+
+      def decrement_level
+        close_let_group_if_open if !@open_let_group_level.nil? && @open_let_group_level >= @level
         super
       end
 
@@ -168,7 +185,6 @@ module PrD
                   margin: 1rem auto 2rem;
                   padding: 1rem;
                   background: var(--paper);
-                  border: 1px solid var(--line);
                   border-radius: 4px;
                 }
 
@@ -205,7 +221,6 @@ module PrD
                   z-index: 1000;
                   width: var(--sidebar-width);
                   background: var(--paper);
-                  border: 1px solid var(--line);
                   border-radius: 4px;
                   padding: 0.9rem 1rem;
                   overflow-y: auto;
@@ -234,8 +249,31 @@ module PrD
                   padding-left: calc(var(--index-level, 0) * 1rem);
                 }
 
+                .index-row {
+                  display: flex;
+                  align-items: center;
+                  gap: 0.3rem;
+                  min-width: 0;
+                }
+
+                .context-toggle {
+                  border: 1px solid var(--line);
+                  border-radius: 3px;
+                  background: #fff;
+                  color: var(--accent);
+                  cursor: pointer;
+                  font-size: 0.72rem;
+                  width: 1.2rem;
+                  height: 1.2rem;
+                  line-height: 1;
+                  padding: 0;
+                  flex: 0 0 auto;
+                }
+
                 .index-link {
                   display: block;
+                  flex: 1 1 auto;
+                  min-width: 0;
                   white-space: nowrap;
                   overflow: hidden;
                   text-overflow: ellipsis;
@@ -255,15 +293,26 @@ module PrD
                 }
 
                 .test-card {
-                  background: var(--paper);
-                  border: 1px solid var(--line);
-                  border-radius: 4px;
-                  padding: 0.9rem 1rem;
+                  background: transparent;
+                  border-left: 3px solid #d1d5db;
+                  padding: 0.8rem 0.95rem;
                   margin: 0 0 1rem;
                 }
 
+                .test-card:has(.status.success) {
+                  border-left-color: #16a34a;
+                }
+
+                .test-card:has(.status.failure) {
+                  border-left-color: #dc2626;
+                }
+
+                .test-card:has(.status.pending) {
+                  border-left-color: #d97706;
+                }
+
                 .test-title {
-                  margin: 0 0 0.75rem;
+                  margin: 0 0 0.5rem;
                   font-size: 1.1rem;
                 }
 
@@ -315,53 +364,65 @@ module PrD
                 }
 
                 .status {
-                  margin: 0.7rem 0 0.2rem;
-                  padding: 0.55rem 0.7rem;
-                  border-radius: 4px;
-                  border: 1px solid var(--line);
-                  font-weight: 500;
+                  margin: 0.22rem 0 0;
+                  padding: 0;
+                  border: 0;
+                  border-radius: 0;
+                  font-weight: 400;
+                  font-size: 0.76rem;
+                  letter-spacing: 0.01em;
+                  color: var(--muted);
+                  opacity: 0.8;
                 }
 
                 .status.success {
-                  background: var(--pass-bg);
-                  color: var(--pass-fg);
+                  background: transparent;
+                  color: var(--muted);
                 }
 
                 .status.failure {
-                  background: var(--fail-bg);
-                  color: var(--fail-fg);
+                  background: transparent;
+                  color: var(--muted);
                 }
 
                 .status.pending {
-                  background: var(--pending-bg);
-                  color: var(--pending-fg);
+                  background: transparent;
+                  color: var(--muted);
                 }
 
                 .subject-block {
-                  margin: 0.5rem 0 0.75rem;
-                  padding: 0.75rem;
+                  margin: 0.18rem 0 0.34rem;
+                  padding: 0.36rem 0.5rem;
                   border: 1px solid #d1d5db;
                   border-radius: 4px;
-                  background: #fafafa;
+                  background: #fcfcfc;
+                }
+
+                .lets-group {
+                  margin: 0.2rem 0 0.6rem;
+                  padding: 0.18rem 0.38rem;
+                  background: #fcfcfc;
+                  border-left: 2px solid #e5e7eb;
+                  border-radius: 3px;
                 }
 
                 .let-block {
-                  margin: 0.5rem 0 0.75rem;
-                  border: 1px solid #d1d5db;
-                  border-radius: 4px;
-                  background: #fff;
+                  margin: 0.15rem 0;
+                  border: 0;
+                  border-radius: 0;
+                  background: transparent;
                 }
 
                 .let-toggle {
                   list-style: none;
                   cursor: pointer;
-                  padding: 0.62rem 0.8rem;
+                  padding: 0.24rem 0.26rem;
                   display: flex;
                   align-items: center;
                   justify-content: space-between;
-                  gap: 0.8rem;
-                  font-size: 0.9rem;
-                  font-weight: 600;
+                  gap: 0.4rem;
+                  font-size: 0.82rem;
+                  font-weight: 500;
                   color: #0f172a;
                 }
 
@@ -372,7 +433,7 @@ module PrD
                 .let-toggle::after {
                   content: 'Open';
                   color: var(--muted);
-                  font-size: 0.76rem;
+                  font-size: 0.68rem;
                   letter-spacing: 0.03em;
                   text-transform: uppercase;
                 }
@@ -382,7 +443,7 @@ module PrD
                 }
 
                 .let-content {
-                  padding: 0 0.75rem 0.75rem;
+                  padding: 0 0.28rem 0.12rem;
                 }
 
                 .let-content .subject-block {
@@ -526,7 +587,21 @@ module PrD
 
         index_items = @index_entries.map do |entry|
           label = escape(index_label(entry))
-          "<li class=\"index-item\" style=\"--index-level: #{entry[:level]};\"><a class=\"index-link\" href=\"##{entry[:anchor_id]}\" title=\"#{label}\">#{label}</a></li>"
+          type = entry[:type].to_s
+          toggle =
+            if entry[:type] == :context
+              '<button type="button" class="context-toggle" aria-expanded="false" title="Unfold context">+</button>'
+            else
+              ''
+            end
+          <<~HTML.chomp
+            <li class="index-item" style="--index-level: #{entry[:level]};" data-level="#{entry[:level]}" data-type="#{type}">
+              <div class="index-row">
+                #{toggle}
+                <a class="index-link" href="##{entry[:anchor_id]}" title="#{label}">#{label}</a>
+              </div>
+            </li>
+          HTML
         end.join
 
         <<~HTML
@@ -557,6 +632,49 @@ module PrD
                 syncToggleLabel();
               });
 
+              var items = Array.prototype.slice.call(nav.querySelectorAll('.index-item'));
+              var contextButtons = Array.prototype.slice.call(nav.querySelectorAll('.context-toggle'));
+
+              var levelOf = function(item) {
+                return Number(item.getAttribute('data-level') || '0');
+              };
+
+              var descendantsOf = function(parentItem) {
+                var start = items.indexOf(parentItem);
+                if (start < 0) return [];
+                var parentLevel = levelOf(parentItem);
+                var descendants = [];
+
+                for (var i = start + 1; i < items.length; i += 1) {
+                  var candidate = items[i];
+                  if (levelOf(candidate) <= parentLevel) break;
+                  descendants.push(candidate);
+                }
+                return descendants;
+              };
+
+              contextButtons.forEach(function(button) {
+                var contextItem = button.closest('.index-item');
+                if (!contextItem) return;
+
+                button.addEventListener('click', function(event) {
+                  event.preventDefault();
+                  var expanded = button.getAttribute('aria-expanded') !== 'false';
+                  var nextExpanded = !expanded;
+                  button.setAttribute('aria-expanded', String(nextExpanded));
+                  button.textContent = nextExpanded ? '-' : '+';
+                  button.title = nextExpanded ? 'Fold context' : 'Unfold context';
+
+                  descendantsOf(contextItem).forEach(function(item) {
+                    item.style.display = nextExpanded ? '' : 'none';
+                  });
+                });
+
+                descendantsOf(contextItem).forEach(function(item) {
+                  item.style.display = 'none';
+                });
+              });
+
               syncToggleLabel();
             })();
           </script>
@@ -564,13 +682,7 @@ module PrD
       end
 
       def index_label(entry)
-        marker =
-          case entry[:type]
-          when :context then '+'
-          else '-'
-          end
-
-        "#{marker} #{entry[:label]}"
+        "#{entry[:label]}"
       end
 
       def add_index_entry(type:, label:, level:, anchor_id:)
@@ -736,6 +848,21 @@ module PrD
 
         render_expectation_code_block('Actual', actual)
         render_expectation_code_block('Expected', expected_value) if expected_present
+      end
+
+      def start_let_group_if_needed
+        return if @open_let_group_level == @level
+
+        close_let_group_if_open
+        @content << '<section class="lets-group">'
+        @open_let_group_level = @level
+      end
+
+      def close_let_group_if_open
+        return if @open_let_group_level.nil?
+
+        @content << '</section>'
+        @open_let_group_level = nil
       end
 
       def expectation_inline_value(value)

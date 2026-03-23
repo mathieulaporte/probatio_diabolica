@@ -117,6 +117,7 @@ module PrD
         serializer = @serializers[value.class]
         return serializer.call(value) if serializer
         return ferrum_node_summary(value) if ferrum_node?(value)
+        return value.path if value.respond_to?(:path) && value.path.is_a?(String) && !value.path.empty?
         return value.path if value.is_a?(File)
         return value.map { |v| serialize(v) } if value.is_a?(Array)
         return value.transform_values { |v| serialize(v) } if value.is_a?(Hash)
@@ -129,12 +130,25 @@ module PrD
       end
 
       def ferrum_node?(value)
+        return true if defined?(PrD::ReportModel::FerrumNodeSnapshot) && value.is_a?(PrD::ReportModel::FerrumNodeSnapshot)
+
         value.respond_to?(:class) && value.class.respond_to?(:name) && value.class.name == 'Ferrum::Node'
       rescue StandardError
         false
       end
 
       def ferrum_node_payload(node)
+        if defined?(PrD::ReportModel::FerrumNodeSnapshot) && node.is_a?(PrD::ReportModel::FerrumNodeSnapshot)
+          payload = node.payload || {}
+          payload[:tag] = payload[:tag].to_s.downcase.strip unless blank_text?(payload[:tag])
+          payload[:id] = payload[:id].to_s.strip unless blank_text?(payload[:id])
+          payload[:classes] = normalize_classes(payload[:classes])
+          payload[:text] = normalize_preview_text(payload[:text], max_length: 160)
+          payload[:html] = normalize_preview_text(payload[:html], max_length: 220)
+          payload[:description] = normalize_preview_text(payload[:description], max_length: 160)
+          return payload
+        end
+
         payload = ferrum_node_payload_from_js(node) || {}
         payload[:tag] = payload[:tag].to_s.downcase.strip unless blank_text?(payload[:tag])
         payload[:id] = payload[:id].to_s.strip unless blank_text?(payload[:id])
