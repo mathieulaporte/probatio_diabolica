@@ -13,13 +13,19 @@ module PrD
         @rouge_formatter = Rouge::Formatters::HTMLLegacy.new(css_class: 'highlight')
         @pending_expectation = nil
         @open_let_group_level = nil
+        @pending_scope_type = nil
+        @scope_stack = []
+        @open_context_blocks = 0
       end
 
       def context(message)
         close_let_group_if_open
         anchor_id = next_anchor_id('ctx')
         add_index_entry(type: :context, label: message, level: @level, anchor_id:)
+        @content << %(<section class="context-block" style="--ctx-level: #{@level};">)
         @content << "<h2 class=\"context\" id=\"#{anchor_id}\">#{escape(message)}</h2>"
+        @open_context_blocks += 1
+        @pending_scope_type = :context
       end
 
       def success_result(message)
@@ -46,6 +52,7 @@ module PrD
         add_index_entry(type: :test, label: description.to_s, level: @level, anchor_id:)
         @content << "<article class=\"test-card\" id=\"#{anchor_id}\">"
         @content << "<h3 class=\"test-title\">#{escape(description)}</h3>"
+        @pending_scope_type = :it
       end
 
       def end_it(description = nil, &block)
@@ -129,6 +136,7 @@ module PrD
 
       def flush
         close_let_group_if_open
+        close_all_context_blocks
         @io << document_opening
         @io << render_index
         @io << @content
@@ -138,11 +146,16 @@ module PrD
 
       def increment_level
         close_let_group_if_open if @open_let_group_level == @level
+        @scope_stack << (@pending_scope_type || :unknown)
+        @pending_scope_type = nil
         super
       end
 
       def decrement_level
         close_let_group_if_open if !@open_let_group_level.nil? && @open_let_group_level >= @level
+        scope = @scope_stack.pop
+        @content << '</section>' if scope == :context && @open_context_blocks.positive?
+        @open_context_blocks -= 1 if scope == :context && @open_context_blocks.positive?
         super
       end
 
@@ -287,9 +300,16 @@ module PrD
 
                 .context {
                   font-size: 1.25rem;
-                  margin: 1rem 0 0.75rem;
+                  margin: 0.45rem 0 0.6rem;
                   padding-bottom: 0.35rem;
                   border-bottom: 1px solid var(--line);
+                }
+
+                .context-block {
+                  margin: 0 0 0.5rem;
+                  margin-left: calc(var(--ctx-level, 0) * 0.6rem);
+                  padding-left: 0.55rem;
+                  border-left: 1px solid #e5e7eb;
                 }
 
                 .test-card {
@@ -863,6 +883,13 @@ module PrD
 
         @content << '</section>'
         @open_let_group_level = nil
+      end
+
+      def close_all_context_blocks
+        while @open_context_blocks.positive?
+          @content << '</section>'
+          @open_context_blocks -= 1
+        end
       end
 
       def expectation_inline_value(value)

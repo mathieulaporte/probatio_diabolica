@@ -125,6 +125,22 @@ describe 'PrD self-hosted reliability' do
     expect(simple_report).to(includes('Uses subject with expect.to'))
   end
 
+  it 'supports multiple expectations inside dynamic loops' do
+    output = run_runtime_with_formatter(
+      PrD::Formatters::SimpleFormatter,
+      <<~SPEC
+        describe 'Dynamic loop suite' do
+          it 'is valid to do that' do
+            [0, 1, 2].each.with_index do |id, index|
+              expect(id).to(eq(index))
+            end
+          end
+        end
+      SPEC
+    )
+    expect(output).to(includes('1 passed, 0 failed'))
+  end
+
   it 'supports before and after hooks for each example' do
     output = run_runtime_with_formatter(
       PrD::Formatters::SimpleFormatter,

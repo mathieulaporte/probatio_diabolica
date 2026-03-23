@@ -119,6 +119,7 @@ module PrD
       execution_error = nil
       before_hooks = collect_before_hooks
       after_hooks = collect_after_hooks
+      @current_expectation_results = []
 
       begin
         description ||= infer_example_description(block)
@@ -149,6 +150,7 @@ module PrD
         @formatter.end_it(description, &block)
         @formatter.decrement_level
         @models_stack.pop if model
+        @current_expectation_results = nil
         reset_subject_memoization!
         clear_recent_let_accesses!
       end
@@ -208,30 +210,40 @@ module PrD
       @formatter.to
       @formatter.matcher(matcher)
       result = matcher.matches?(@actual)
-      return result if result.pass
+      final_result = if result.pass
+        result
+      else
+        TestResult.new(
+          comment: merge_expectation_comments(
+            build_expectation_failure_message(matcher, negated: false),
+            result.comment
+          ),
+          pass: false
+        )
+      end
 
-      TestResult.new(
-        comment: merge_expectation_comments(
-          build_expectation_failure_message(matcher, negated: false),
-          result.comment
-        ),
-        pass: false
-      )
+      record_expectation_result(final_result)
+      final_result
     end
 
     def not_to(matcher)
       @formatter.not_to
       @formatter.matcher(matcher)
       result = matcher.matches?(@actual)
-      return TestResult.new(comment: result.comment, pass: true) unless result.pass
+      final_result = unless result.pass
+        TestResult.new(comment: result.comment, pass: true)
+      else
+        TestResult.new(
+          comment: merge_expectation_comments(
+            build_expectation_failure_message(matcher, negated: true),
+            result.comment
+          ),
+          pass: false
+        )
+      end
 
-      TestResult.new(
-        comment: merge_expectation_comments(
-          build_expectation_failure_message(matcher, negated: true),
-          result.comment
-        ),
-        pass: false
-      )
+      record_expectation_result(final_result)
+      final_result
     end
 
     def subject(&block)
@@ -457,6 +469,12 @@ module PrD
     end
 
     def process_test_result(result)
+      expectation_results = @current_expectation_results || []
+      unless expectation_results.empty?
+        failing_result = expectation_results.find { |expectation_result| !expectation_result.pass }
+        result = failing_result || expectation_results.last
+      end
+
       unless result.respond_to?(:pass)
         raise NoMethodError, 'Test example must return a matcher result. Use expect(...).to(...) or expect(...).not_to(...).'
       end
@@ -516,6 +534,12 @@ module PrD
       return failure_message if matcher_comment.nil? || matcher_comment.to_s.strip.empty?
 
       "#{failure_message}. #{matcher_comment}"
+    end
+
+    def record_expectation_result(result)
+      return if @current_expectation_results.nil?
+
+      @current_expectation_results << result
     end
 
   end

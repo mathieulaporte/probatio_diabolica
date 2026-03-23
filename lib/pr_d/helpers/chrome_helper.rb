@@ -225,6 +225,19 @@ module PrD
         network(at:, warmup_time:, &block).map(&:url)
       end
 
+      # return the request when it is finished, or raise Timeout::Error if it doesn't finish within the timeout
+      def wait_for_network_url_done(at:, url:, warmup_time: 2, timeout: 10)
+        session = prepare_browser_session(at:, warmup_time:)
+        yield session if block_given?
+        deadline = Time.now + timeout.to_f
+        loop do
+          request = session.browser.network.traffic.find { |request| request.url == url && request.finished? }
+          break request if request
+          raise Timeout::Error, "Timeout waiting for network request: #{url}" if Time.now > deadline
+          sleep(0.1)
+        end
+      end
+
       def pdf(at:, warmup_time: 2)
         session = prepare_browser_session(at:, warmup_time:)
         browser = session.browser
