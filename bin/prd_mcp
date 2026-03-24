@@ -1,8 +1,10 @@
 #!/usr/bin/env ruby
 
 begin
+  require 'pr_d/version'
   require 'pr_d'
 rescue LoadError
+  require_relative '../lib/pr_d/version'
   require_relative '../lib/pr_d'
 end
 

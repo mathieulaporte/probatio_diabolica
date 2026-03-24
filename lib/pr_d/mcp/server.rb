@@ -1,4 +1,5 @@
 require 'json'
+require 'pr_d/version'
 
 module PrD
   module Mcp
@@ -55,9 +56,15 @@ module PrD
           },
           serverInfo: {
             name: 'probatio-diabolica-mcp',
-            version: PrD::VERSION
+            version: server_version
           }
         }
+      end
+
+      def server_version
+        return PrD::VERSION if PrD.const_defined?(:VERSION, false)
+
+        Gem.loaded_specs['probatio_diabolica']&.version&.to_s || '0.0.0'
       end
 
       def tools_list_result

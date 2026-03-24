@@ -27,6 +27,44 @@ describe 'MCP server' do
     end
   end
 
+  context 'when initializing MCP session' do
+    let(:response) do
+      server.process_message({
+        'id' => 10,
+        'method' => 'initialize',
+        'params' => {
+          'protocolVersion' => '2024-11-05',
+          'capabilities' => {},
+          'clientInfo' => { 'name' => 'spec-client', 'version' => '1.0.0' }
+        }
+      })
+    end
+
+    it 'returns initialize result without internal error' do
+      expect(response[:error]).to(eq(nil))
+      expect(response.dig(:result, :serverInfo, :name)).to(eq('probatio-diabolica-mcp'))
+      expect(response.dig(:result, :serverInfo, :version)).to(eq(PrD::VERSION))
+    end
+
+    it 'still supports tools/list after initialize' do
+      server.process_message({
+        'id' => 10,
+        'method' => 'initialize',
+        'params' => {
+          'protocolVersion' => '2024-11-05',
+          'capabilities' => {},
+          'clientInfo' => { 'name' => 'spec-client', 'version' => '1.0.0' }
+        }
+      })
+
+      tools_response = server.process_message({ 'id' => 11, 'method' => 'tools/list' })
+      tools = tools_response.dig(:result, :tools)
+
+      expect(tools.length).to(eq(1))
+      expect(tools.first[:name]).to(eq('run_specs'))
+    end
+  end
+
   context 'when calling run_specs' do
     subject do
       server.process_message({
