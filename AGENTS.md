@@ -29,13 +29,13 @@ Probatio Diabolica est un framework de test Ruby experimental qui:
 - Qualite de rendu formatter et stabilite des sorties machine.
 - Gestion des arguments CLI et regles de chemin de sortie.
 - Compatibilite MCP `run_specs` avec le comportement CLI.
+- Execution parallele inter-fichiers `*_spec.rb` via workers (`--jobs` CLI / `jobs` MCP) avec ordre de rendu stable par fichier trie.
 - Helpers navigateur (`screen`, `text`, `network`, `network_urls`, `pdf`, `html`).
 - Helper `source_code` et type `PrD::Code`.
 
 ## Hors scope (sauf re-scope explicite)
 
 - Compatibilite RSpec complete ou mode plugin RSpec.
-- Execution parallele/distribuee des tests.
 - Garanties API "enterprise stable" (projet experimental).
 - Interactivite riche dans les viewers PDF (PDF principalement statique).
 
@@ -84,7 +84,11 @@ Probatio Diabolica est un framework de test Ruby experimental qui:
 
 Pour toute capacite majeure (ex: scenarios type Gherkin), commencer par mettre a jour ce fichier avec:
 
-- le probleme vise
+- le probleme visé
 - ce qui entre explicitement en scope
 - les non-objectifs explicites
 - les contrats impactes (CLI/MCP/formatters/tests)
+
+## Scope update
+
+- 2026-03-25: l execution parallele inter-fichiers entre explicitement en scope avec un orchestrateur unique (`jobs=1..N`), en conservant les contrats de sortie CLI/MCP et les formatters existants.

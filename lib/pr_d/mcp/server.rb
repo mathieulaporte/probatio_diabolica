@@ -95,6 +95,11 @@ module PrD
                 type: 'string',
                 enum: RunSpecsTool::SUPPORTED_MODES,
                 description: 'Optional output mode.'
+              },
+              jobs: {
+                type: 'integer',
+                minimum: 1,
+                description: 'Optional number of workers used for file-level execution.'
               }
             },
             required: ['path']

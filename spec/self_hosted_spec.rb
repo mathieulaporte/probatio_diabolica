@@ -413,6 +413,17 @@ describe 'PrD self-hosted reliability' do
     end
   end
 
+  context 'when CLI receives an invalid jobs value' do
+    subject { capture_cli('bundle exec ruby bin/prd spec/self_hosted_spec.rb --jobs 0') }
+
+    it 'fails fast on invalid jobs value in CLI' do
+      _stdout, stderr, status = subject
+
+      expect(status.success?).to(be(false))
+      expect(stderr).to(includes('Invalid jobs'))
+    end
+  end
+
   context 'when CLI receives a missing path' do
     subject { capture_cli('bundle exec ruby bin/prd ./spec/does_not_exist_spec.rb') }
 
@@ -454,6 +465,39 @@ describe 'PrD self-hosted reliability' do
       expect(stdout).to(includes('1 passed, 1 failed'))
       expect(stdout).not_to(includes('Expect:'))
       expect(stdout).not_to(includes('Justification:'))
+    end
+  end
+
+  context 'when CLI runs with multiple workers' do
+    subject do
+      Dir.mktmpdir('prd_cli_jobs') do |tmp_dir|
+        File.write(File.join(tmp_dir, 'a_spec.rb'), <<~SPEC)
+          describe 'CLI jobs a suite' do
+            it 'from a file' do
+              sleep 0.2
+              expect(1).to(eq(1))
+            end
+          end
+        SPEC
+        File.write(File.join(tmp_dir, 'b_spec.rb'), <<~SPEC)
+          describe 'CLI jobs b suite' do
+            it 'from b file' do
+              expect(1).to(eq(1))
+            end
+          end
+        SPEC
+
+        capture_cli("bundle exec ruby bin/prd #{Shellwords.escape(tmp_dir)} --mode synthetic --jobs 2")
+      end
+    end
+
+    it 'runs all files and keeps deterministic order in synthetic output' do
+      stdout, stderr, status = subject
+
+      expect(status.success?).to(be(true))
+      expect(stderr).to(eq(''))
+      expect(stdout).to(includes('2 passed, 0 failed'))
+      expect(stdout.index('PASS: from a file') < stdout.index('PASS: from b file')).to(eq(true))
     end
   end
 

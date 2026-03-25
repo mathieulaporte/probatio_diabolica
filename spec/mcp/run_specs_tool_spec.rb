@@ -12,6 +12,30 @@ ensure
 end
 
 describe 'MCP run_specs tool' do
+  class FakeStatus
+    attr_reader :exitstatus
+
+    def initialize(exitstatus)
+      @exitstatus = exitstatus
+    end
+  end
+
+  class CapturingCommandRunner
+    attr_reader :commands
+
+    def initialize(stdout: "1 passed, 0 failed\n", stderr: '', exitstatus: 0)
+      @stdout = stdout
+      @stderr = stderr
+      @status = FakeStatus.new(exitstatus)
+      @commands = []
+    end
+
+    def capture3(*command, chdir:)
+      @commands << { command: command, chdir: chdir }
+      [@stdout, @stderr, @status]
+    end
+  end
+
   let(:tool) { PrD::Mcp::RunSpecsTool.new }
 
   context 'with a valid spec file' do
@@ -93,6 +117,21 @@ describe 'MCP run_specs tool' do
     end
   end
 
+  context 'with invalid jobs argument' do
+    let(:error_message) do
+      begin
+        tool.call({ 'path' => 'spec', 'jobs' => 0 })
+        nil
+      rescue StandardError => e
+        e.message
+      end
+    end
+
+    it 'raises an explicit error' do
+      expect(error_message).to(eq('`jobs` must be an integer greater than or equal to 1.'))
+    end
+  end
+
   it 'generates artifacts for html and json formatters when out is set' do
     with_temp_spec_file('mcp_run_specs_artifacts', <<~SPEC) do |spec_path|
         describe 'artifact suite' do
@@ -147,6 +186,27 @@ describe 'MCP run_specs tool' do
 
     it 'raises an explicit error' do
       expect(error_message).to(eq('Using multiple formatters or pdf requires `out`.'))
+    end
+  end
+
+  it 'forwards jobs to CLI command' do
+    with_temp_spec_file('mcp_run_specs_jobs', <<~SPEC) do |path|
+      describe 'jobs suite' do
+        it 'passes' do
+          expect(1).to(eq(1))
+        end
+      end
+    SPEC
+      command_runner = CapturingCommandRunner.new
+      custom_tool = PrD::Mcp::RunSpecsTool.new(command_runner: command_runner)
+
+      result = custom_tool.call({ 'path' => path, 'jobs' => 4 })
+
+      expect(result[:ok]).to(eq(true))
+      last_command = command_runner.commands.last[:command]
+      jobs_flag_index = last_command.index('--jobs')
+      expect(jobs_flag_index.nil?).to(eq(false))
+      expect(last_command[jobs_flag_index + 1]).to(eq('4'))
     end
   end
 end

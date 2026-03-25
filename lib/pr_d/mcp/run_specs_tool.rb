@@ -6,6 +6,7 @@ module PrD
     class RunSpecsTool
       SUPPORTED_FORMATTERS = %w[simple html json pdf].freeze
       SUPPORTED_MODES = %w[verbose synthetic].freeze
+      DEFAULT_JOBS = 1
       FORMATTER_EXTENSIONS = {
         'simple' => '.txt',
         'html' => '.html',
@@ -64,6 +65,7 @@ module PrD
         mode = normalize_mode(raw_args['mode'] || raw_args[:mode])
         out = normalize_optional_string(raw_args['out'] || raw_args[:out])
         config = normalize_optional_string(raw_args['config'] || raw_args[:config])
+        jobs = normalize_jobs(raw_args['jobs'] || raw_args[:jobs])
 
         if (formatters.length > 1 || formatters.include?('pdf')) && out.nil?
           raise ArgumentError, 'Using multiple formatters or pdf requires `out`.'
@@ -74,7 +76,8 @@ module PrD
           formatters: formatters,
           mode: mode,
           out: out,
-          config: config
+          config: config,
+          jobs: jobs
         }
       end
 
@@ -114,10 +117,22 @@ module PrD
         mode
       end
 
+      def normalize_jobs(value)
+        return DEFAULT_JOBS if value.nil?
+
+        jobs = Integer(value)
+        raise ArgumentError, '`jobs` must be an integer greater than or equal to 1.' if jobs < 1
+
+        jobs
+      rescue ArgumentError, TypeError
+        raise ArgumentError, '`jobs` must be an integer greater than or equal to 1.'
+      end
+
       def build_command(args)
         bin_path = File.expand_path('../../../bin/prd', __dir__)
         command = ['bundle', 'exec', 'ruby', bin_path, args[:path]]
         command << '--mode' << args[:mode]
+        command << '--jobs' << args[:jobs].to_s
 
         args[:formatters].each do |formatter|
           command << '-t' << formatter

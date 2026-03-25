@@ -19,6 +19,7 @@ FORMATTERS = {
 SUPPORTED_FORMATTERS = FORMATTERS.keys.freeze
 SUPPORTED_MODES = %w[verbose synthetic].freeze
 DEFAULT_REPORT_BASENAME = 'report'.freeze
+DEFAULT_JOBS = 1
 
 class CompositeFormatter
   def initialize(formatters)
@@ -68,6 +69,17 @@ def normalize_mode(raw_mode)
   mode
 end
 
+def normalize_jobs(raw_jobs)
+  return DEFAULT_JOBS if raw_jobs.nil?
+
+  jobs = Integer(raw_jobs)
+  raise "Invalid jobs count: #{jobs}. Expected an integer greater than or equal to 1." if jobs < 1
+
+  jobs
+rescue ArgumentError, TypeError
+  raise "Invalid jobs value: #{raw_jobs}. Expected an integer greater than or equal to 1."
+end
+
 def directory_like_path?(path)
   path.end_with?(File::SEPARATOR) || Dir.exist?(path)
 end
@@ -98,6 +110,9 @@ OptionParser
     opts.on('-m', '--mode MODE', 'Specify output mode (verbose, synthetic)') do |mode|
       options[:mode] = mode
     end
+    opts.on('-j', '--jobs N', 'Specify number of workers (default: 1)') do |jobs|
+      options[:jobs] = jobs
+    end
   end
   .parse!
 
@@ -106,17 +121,18 @@ raise 'No tests found. Please specify a test file or directory (e.g. prd example
 raise "Unexpected arguments: #{ARGV.join(' ')}" unless ARGV.empty?
 raise "Path not found: #{input_path}" unless File.exist?(input_path)
 
-tests =
+test_files =
   if File.directory?(input_path)
     files = Dir[File.join(input_path, '**', '*_spec.rb')].sort
     raise "No spec files found in directory: #{input_path}" if files.empty?
-    files.map { |file| File.read(file) }
+    files
   elsif File.file?(input_path)
-    [File.read(input_path)]
+    [input_path]
   end
 
 formatter_types = parse_formatter_types(options[:formatters])
 mode = normalize_mode(options[:mode])
+jobs = normalize_jobs(options[:jobs])
 out_base = output_base_path(options[:out])
 
 if formatter_types.include?('pdf') && out_base.nil?
@@ -169,15 +185,23 @@ collector = PrD::ReportCollector.new(
 )
 
 runtime_output_dir = out_base.nil? ? nil : File.dirname(out_base)
-runtime = PrD::Runtime.new(formatter: collector, output_dir: runtime_output_dir, config_file: options[:config])
-runtime.run(tests)
-exit_status = runtime.success? ? 0 : 1
+runner_result = PrD::WorkerRunner.new(
+  file_paths: test_files,
+  jobs: jobs,
+  mode: mode.to_sym,
+  serializers: serializers,
+  output_dir: runtime_output_dir,
+  config_file: options[:config],
+  subject_display_strategy: collector.subject_display_strategy,
+  eager_subject_display_strategy: collector.eager_subject_display_strategy
+).run
+exit_status = runner_result.failed_count.zero? ? 0 : 1
 
 destinations.each do |destination|
   io = destination[:io]
   type = destination[:formatter_type]
   formatter = FORMATTERS.fetch(type)[:klass].new(io:, serializers:, mode: mode.to_sym)
-  PrD::ReportRenderer.render(collector.model, formatter)
+  PrD::ReportRenderer.render(runner_result.model, formatter)
 end
 
 destinations.each do |destination|

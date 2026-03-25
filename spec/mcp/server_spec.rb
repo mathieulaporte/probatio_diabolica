@@ -25,6 +25,13 @@ describe 'MCP server' do
       expect(subject.length).to(eq(1))
       expect(subject.first[:name]).to(eq('run_specs'))
     end
+
+    it 'declares jobs argument in tool schema' do
+      jobs_schema = subject.first.dig(:inputSchema, :properties, :jobs)
+
+      expect(jobs_schema[:type]).to(eq('integer'))
+      expect(jobs_schema[:minimum]).to(eq(1))
+    end
   end
 
   context 'when initializing MCP session' do

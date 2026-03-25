@@ -79,6 +79,7 @@ Input:
 - `out` (optional): same as `-o`
 - `formatters` (optional): array of `simple|html|json|pdf` (default: `["simple"]`)
 - `mode` (optional): `verbose|synthetic` (default: `synthetic`)
+- `jobs` (optional): file-level workers count (integer >= 1, default: `1`)
 
 Output (`structuredContent`):
 - `ok`, `exit_code`
@@ -95,6 +96,7 @@ Options:
 - `-o, --out PATH` output base path (directory or file-like base name)
 - `-m, --mode MODE` output mode, default: `verbose`
   - supported: `verbose`, `synthetic`
+- `-j, --jobs N` number of workers for file-level execution, default: `1`
 
 Output rules (`--out`):
 
@@ -131,7 +133,17 @@ prd examples/basics_spec.rb -t html,json,pdf -o ./tmp/my_report
 
 # compact synthetic output on console
 prd examples/basics_spec.rb --mode synthetic
+
+# run a directory with 4 file-level workers
+prd spec --mode synthetic --jobs 4
 ```
+
+Parallel execution notes:
+
+- Parallelism is file-level only (`*_spec.rb` files are distributed across workers).
+- Event rendering order stays deterministic: files are merged in sorted path order.
+- `--jobs 1` uses the same worker pipeline as `--jobs N`.
+- Specs sharing mutable global state across files can become non-deterministic when `jobs > 1`.
 
 ## Available DSL
 
