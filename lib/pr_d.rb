@@ -77,6 +77,8 @@ module PrD
       @models_stack = []
       @hook_scopes = [{ before: [], after: [] }]
       @subject_definition_stack = [nil]
+      @context_depth = 0
+      @eager_subject_rendered = false
       reset_subject_memoization!
       if config_file
         if File.exist?(config_file)
@@ -98,6 +100,7 @@ module PrD
     end
 
     def context(description, model: nil, &block)
+      @context_depth += 1
       @formatter.context(description)
       @formatter.increment_level
       @models_stack.push(model) if model
@@ -106,12 +109,17 @@ module PrD
 
       instance_eval(&block)
     rescue StandardError => e
-      report_context_execution_error(e, description:)
+      if @context_depth == 1
+        raise e
+      else
+        report_context_execution_error(e, description:)
+      end
     ensure
       @subject_definition_stack.pop
       @hook_scopes.pop
       @models_stack.pop if model
       @formatter.decrement_level
+      @context_depth -= 1 if @context_depth.positive?
     end
 
     def it(description = nil, model = nil, &block)
@@ -171,7 +179,7 @@ module PrD
       if @verbose
         rendered_value =
           if let_error
-            "Error while evaluating let(:#{name}): #{let_error.class}: #{let_error.message}"
+            "Error while evaluating let(:#{name}): #{let_error.class}: #{normalized_error_message(let_error)}"
           else
             block_result
           end
@@ -186,7 +194,7 @@ module PrD
       instance_variable_set("@#{name}", block_result)
       define_singleton_method(name) do
         if let_error
-          raise let_error.class, let_error.message, let_error.backtrace
+          raise let_error.class, normalized_error_message(let_error), let_error.backtrace
         end
 
         record_let_access(name, block_result, callsite: caller_locations(1, 1).first)
@@ -259,11 +267,15 @@ module PrD
       raise ArgumentError, 'subject! requires a block.' unless block_given?
 
       subject(&block)
-      if @verbose && @formatter.eager_subject_display_strategy == :on_definition
-        @formatter.subject(instance_eval(&block))
-      end
+      @eager_subject_rendered = false
       render_in_before = @verbose && @formatter.eager_subject_display_strategy == :on_evaluation
-      before { evaluate_subject_value(render: render_in_before) }
+      before do
+        value = evaluate_subject_value(render: render_in_before)
+        if @verbose && @formatter.eager_subject_display_strategy == :on_definition && !@eager_subject_rendered
+          @formatter.subject(value)
+          @eager_subject_rendered = true
+        end
+      end
       nil
     end
 
@@ -280,9 +292,9 @@ module PrD
         @formatter.expect(@actual, label: nil)
       else
         @actual = subject
-        @actual_label = nil
+        @actual_label = consume_let_label_for_value(@actual, callsite:)
         # Avoid to display the subject value twice
-        @formatter.expect('The subject', label: nil)
+        @formatter.expect('The subject', label: @actual_label)
       end
       self
     end
@@ -448,24 +460,31 @@ module PrD
     end
 
     def report_test_execution_error(error)
-      $stderr.puts "An error occurred while executing test: #{error.message}"
+      error_message = normalized_error_message(error)
+      $stderr.puts "An error occurred while executing test: #{error_message}"
       $stderr.puts error.backtrace.join("\n")
-      @formatter.failure_result("Test failed at #{formatted_time} with error message: #{error.message}")
+      @formatter.failure_result("Test failed at #{formatted_time} with error message: #{error_message}")
       @failed_count += 1
     end
 
     def report_context_execution_error(error, description:)
-      $stderr.puts "An error occurred while executing context '#{description}': #{error.message}"
+      error_message = normalized_error_message(error)
+      $stderr.puts "An error occurred while executing context '#{description}': #{error_message}"
       $stderr.puts error.backtrace.join("\n")
-      @formatter.failure_result("Context '#{description}' failed at #{formatted_time} with error message: #{error.message}")
+      @formatter.failure_result("Context '#{description}' failed at #{formatted_time} with error message: #{error_message}")
       @failed_count += 1
     end
 
     def report_spec_source_execution_error(error, source_index:)
-      $stderr.puts "An error occurred while loading spec source ##{source_index}: #{error.message}"
+      error_message = normalized_error_message(error)
+      $stderr.puts "An error occurred while loading spec source ##{source_index}: #{error_message}"
       $stderr.puts error.backtrace.join("\n")
-      @formatter.failure_result("Spec source ##{source_index} failed at #{formatted_time} with error message: #{error.message}")
+      @formatter.failure_result("Spec source ##{source_index} failed at #{formatted_time} with error message: #{error_message}")
       @failed_count += 1
+    end
+
+    def normalized_error_message(error)
+      error.message.to_s.gsub(/undefined method '([^']+)'/) { "undefined method `#{$1}'" }
     end
 
     def process_test_result(result)

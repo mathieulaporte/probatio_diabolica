@@ -626,7 +626,7 @@ describe 'PrD self-hosted reliability' do
       expect(subject[:status].success?).to(be(true))
       expect(subject[:stdout]).to(eq(''))
       expect(subject[:stderr]).to(eq(''))
-      expect(File.exist?(subject[:json_path])).to(eq(true))
+      expect(subject[:payload].nil?).to(eq(false))
       expect(subject[:payload]['format']).to(eq('prd-json-v1'))
     end
   end
@@ -664,7 +664,7 @@ describe 'PrD self-hosted reliability' do
       expect(subject[:status].success?).to(be(true))
       expect(subject[:stdout]).to(eq(''))
       expect(subject[:stderr]).to(eq(''))
-      expect(File.exist?(subject[:report_path])).to(eq(true))
+      expect(subject[:report].nil?).to(eq(false))
       expect(subject[:report]).to(includes('1 passed, 0 failed'))
     end
   end

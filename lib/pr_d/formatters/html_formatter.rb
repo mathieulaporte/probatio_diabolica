@@ -625,8 +625,8 @@ module PrD
         end.join
 
         <<~HTML
-          <button type="button" class="index-toggle" aria-expanded="false" aria-controls="report-index">Show index</button>
-          <nav id="report-index" class="report-index" aria-label="Report index">
+          <button type="button" class="index-toggle" aria-expanded="false">Show index</button>
+          <nav class="report-index" aria-label="Report index">
             <h2 class="index-title">Index</h2>
             <ul class="index-list">
               #{index_items}
@@ -635,7 +635,7 @@ module PrD
           <script>
             (function() {
               var body = document.body;
-              var nav = document.getElementById('report-index');
+              var nav = document.querySelector('.report-index');
               var toggle = document.querySelector('.index-toggle');
               if (!body || !nav || !toggle) return;
 

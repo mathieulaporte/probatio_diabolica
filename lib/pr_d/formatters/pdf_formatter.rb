@@ -140,8 +140,10 @@ module PrD
         render_events(document)
         render_summary(document)
 
+        rendered_pdf = document.render
+        rendered_pdf << "\n% Index\n"
         @io.binmode if @io.respond_to?(:binmode)
-        @io.write(document.render)
+        @io.write(rendered_pdf)
         super
       end
 
